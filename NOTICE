@@ -1,0 +1,13 @@
+texcomp
+Copyright (c) lapoule.dev
+
+Licensed under either of the Apache License, Version 2.0 (LICENSE-APACHE) or
+the MIT license (LICENSE-MIT), at your option.
+
+Ported code
+-----------
+
+No third-party code has been ported into this repository yet. The CPU encoder
+and transcoders will be a port of parts of Basis Universal (Binomial LLC,
+Apache-2.0); each ported item will carry an attribution at its head, and this
+file will name the upstream version and commit when the first one lands.
