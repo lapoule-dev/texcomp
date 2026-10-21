@@ -1,0 +1,45 @@
+[package]
+name = "texcomp"
+version = "0.1.0"
+description = "GPU block-compressed textures (BC7, ASTC), encoded on the fly from RGBA8 by WGSL compute kernels or on the CPU"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+authors = ["lapoule.dev"]
+repository = "https://github.com/lapoule-dev/texcomp"
+publish = false
+
+[features]
+default = []
+# The WGSL compute encoder and its host-side dispatch, on wgpu. Without it the
+# crate has no GPU dependency at all.
+gpu = ["dep:wgpu", "dep:bytemuck"]
+
+[dependencies]
+thiserror = "2.0.18"
+# The same major as tuile's. No default features: the application that links
+# this picks its backends; only the WGSL front end is needed here.
+wgpu = { version = "29.0.3", default-features = false, features = ["wgsl"], optional = true }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
+
+[dev-dependencies]
+# The tests and the example need a backend to run on.
+wgpu = { version = "29.0.3" }
+# The validator wgpu runs, at its version, to check every kernel without a GPU.
+naga = { version = "29.0.3", features = ["wgsl-in"] }
+pollster = "0.4"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+# CIEDE2000 for the quality gate.
+palette = { version = "0.7.6", default-features = false, features = ["std"] }
+
+[[test]]
+name = "gpu_quality"
+required-features = ["gpu"]
+
+[[example]]
+name = "pass-footprint"
+required-features = ["gpu"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
