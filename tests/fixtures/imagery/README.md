@@ -4,7 +4,7 @@
 # Imagery fixtures
 
 Real imagery tiles, as the source serves them (not re-encoded), for the block
-encoder's quality gate (`tests/texcomp_quality.rs`). Each is 512×512 and is cut
+encoder's quality gate (`tests/gpu_quality.rs`). Each is 512×512 and is cut
 into four 256² tiles, the viewer's tile size.
 
 All of them are NASA imagery served by NASA EOSDIS GIBS, which is in the public
