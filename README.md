@@ -28,7 +28,7 @@ device reports.
 
 ## Two paths
 
-- **On the GPU** (feature `gpu`, wgpu 29): WGSL compute kernels write BC7 and
+- **On the GPU** (feature `gpu`, wgpu 30): WGSL compute kernels write BC7 and
   ASTC 4×4 blocks from RGBA8 mip levels, and `GpuEncoder` dispatches them. One
   call records one compute pass and the copies into the caller's command
   encoder. `gpu::runs_on` says whether a device can run the kernels.
@@ -102,13 +102,13 @@ back as an `EncodeError`: the caller uploads it uncompressed, never drops it.
 
 | Feature | Default | What it adds |
 |---|---|---|
-| `gpu` | no | the WGSL compute encoder and its dispatch, on wgpu 29 (no default wgpu features: the application picks its backends) |
+| `gpu` | no | the WGSL compute encoder and its dispatch, on wgpu 30 (no default wgpu features: the application picks its backends) |
 
 Without `gpu` the crate depends on nothing GPU-related.
 
 ## Minimum Rust version
 
-1.91.
+1.97.
 
 ## Status
 

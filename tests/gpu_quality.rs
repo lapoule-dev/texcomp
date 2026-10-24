@@ -144,6 +144,9 @@ fn gpu() -> Option<Gpu> {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                // The adapter's own limits, not bucketed ones: the gate
+                // requests them all.
+                apply_limit_buckets: false,
             })
             .await
         {
@@ -393,7 +396,7 @@ fn decode(gpu: &Gpu, texture: &wgpu::Texture, sizes: &[(u32, u32)]) -> Vec<Vec<u
             gpu.device
                 .poll(wgpu::PollType::wait_indefinitely())
                 .expect("poll");
-            let data = slice.get_mapped_range().to_vec();
+            let data = slice.get_mapped_range().expect("mapped").to_vec();
             read.unmap();
             data
         })

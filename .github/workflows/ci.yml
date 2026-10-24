@@ -23,6 +23,20 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --all-targets --features gpu -- -D warnings
 
+  # The `rust-version` in Cargo.toml, held: wgpu 30 needs 1.97.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets
+      - run: cargo check --all-targets --features gpu
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --features gpu -- -D warnings
+
   test:
     strategy:
       matrix:
