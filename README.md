@@ -32,10 +32,13 @@ device reports.
   ASTC 4×4 blocks from RGBA8 mip levels, and `GpuEncoder` dispatches them. One
   call records one compute pass and the copies into the caller's command
   encoder. `gpu::runs_on` says whether a device can run the kernels.
-- **On the CPU** (default build, nothing but `std`, `wasm32-unknown-unknown`
-  clean): a port of the block layer of Basis Universal (UASTC LDR 4×4 and its
-  transcoder to ASTC), for devices without compute shaders, such as WebGL2.
-  *In progress, not in this release.*
+- **On the CPU** (default build, `std` and `thiserror` only,
+  `wasm32-unknown-unknown` clean): a port of the block layer of
+  [Basis Universal](https://github.com/BinomialLLC/basis_universal) v2.50, for
+  devices without compute shaders, such as WebGL2. UASTC LDR 4×4 is its
+  intermediate: `texcomp::uastc` decodes it and transcodes it to ASTC 4×4,
+  bit-exact against vectors captured from upstream
+  (`tests/uastc_reference.rs`). The encoder is in progress.
 
 ## Quality and cost
 
@@ -170,11 +173,17 @@ Without `gpu` the crate depends on nothing GPU-related.
 ## Status
 
 - **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
-  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps).
-- **Next**: the CPU path, in steps. First UASTC unpack and UASTC to ASTC,
-  bit-exact against upstream reference vectors; then the UASTC encoder.
-  UASTC to BC7 is deferred: desktop WebGL2 is rare and falls back to RGBA8.
+  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
+  UASTC decode and UASTC to ASTC 4×4, bit-exact against upstream.
+- **Next**: the UASTC encoder (effort levels 0–2), bit-exact against
+  upstream, and UASTC to BC7.
 
 ## Licence
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright lapoule.dev. Third-party attributions are in [`NOTICE`](./NOTICE).
+
+The files ported from Basis Universal (Apache-2.0, © Binomial LLC) are
+offered under the same terms. They carry the upstream attribution and a notice
+of modification at the head of each ported item; see `NOTICE` and
+`LICENSE-APACHE-UPSTREAM`. "Basis Universal" is a trademark of Binomial LLC,
+named here only to identify the project this code is ported from.

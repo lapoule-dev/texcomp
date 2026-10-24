@@ -15,6 +15,7 @@
 mod astc;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod uastc;
 
 /// A block-compressed format a texture can be made resident in.
 ///
