@@ -15,8 +15,9 @@
 // for line against it.
 #![allow(clippy::needless_range_loop)]
 
+use super::bc1;
 use super::bc7;
-use super::cell::{self, Effort, Params, Weights, ASTC_4, BC7_2, BC7_3};
+use super::cell::{self, Effort, Params, Weights, ASTC_4, BC7_1, BC7_2, BC7_3};
 use super::etc::{self, EtcBlock, EAC_TABLES};
 use super::tables::{
     BISE_RANGES, COMPS, ENDPOINT_RANGES, HAS_ALPHA, HAS_BC1_HINT0, HAS_BC1_HINT1, HAS_ETC1_BIAS,
@@ -89,6 +90,58 @@ fn config(level: Level) -> Config {
             bc1_hints: false,
             only_use_la_on_transparent_blocks: true,
             level: 0,
+        },
+        Level::Faster => Config {
+            mode_mask: (1 << 0)
+                | (1 << 4)
+                | (1 << 6)
+                | (1 << 8)
+                | (1 << 9)
+                | (1 << 11)
+                | (1 << 12)
+                | (1 << 15)
+                | (1 << 17),
+            uber_level: 0,
+            estimate_partition: true,
+            always_try_alpha_modes: false,
+            eac_mul_search_rad: 0,
+            eac_table_mask: (1 << 2) | (1 << 8) | (1 << 11) | (1 << 13),
+            least_squares_passes: 1,
+            bc1_hints: true,
+            only_use_la_on_transparent_blocks: false,
+            level: 1,
+        },
+        Level::Default => Config {
+            mode_mask: (1 << 0)
+                | (1 << 1)
+                | (1 << 4)
+                | (1 << 5)
+                | (1 << 6)
+                | (1 << 8)
+                | (1 << 9)
+                | (1 << 10)
+                | (1 << 11)
+                | (1 << 12)
+                | (1 << 13)
+                | (1 << 15)
+                | (1 << 16)
+                | (1 << 17),
+            uber_level: 1,
+            estimate_partition: true,
+            always_try_alpha_modes: false,
+            eac_mul_search_rad: 1,
+            eac_table_mask: (1 << 0)
+                | (1 << 2)
+                | (1 << 6)
+                | (1 << 7)
+                | (1 << 8)
+                | (1 << 10)
+                | (1 << 11)
+                | (1 << 13),
+            least_squares_passes: 1,
+            bc1_hints: true,
+            only_use_la_on_transparent_blocks: false,
+            level: 2,
         },
     }
 }
@@ -197,6 +250,339 @@ fn mode11(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
             w[i * 2 + 1] = if invert { 3 - ai } else { ai };
         }
         out.push(candidate(11, 0, &e, &w, rot as u8, total));
+    }
+}
+
+// Ported from Basis Universal v2.50, `astc_mode1`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode1(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 20;
+    let f = fit(block, BC7_2, range, false, effort);
+    let mut e = [0u8; 6];
+    for c in 0..3 {
+        e[c * 2] = f.astc_low[c];
+        e[c * 2 + 1] = f.astc_high[c];
+    }
+    let invert = order(&mut e, range, 3);
+    let w = f.selectors.map(|s| if invert { 3 - s } else { s });
+    out.push(candidate(1, 0, &e, &w, 0, f.err));
+}
+
+// Ported from Basis Universal v2.50, `astc_mode5`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode5(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 20;
+    let f = fit(block, BC7_3, range, false, effort);
+    let mut e = [0u8; 6];
+    for c in 0..3 {
+        e[c * 2] = f.astc_low[c];
+        e[c * 2 + 1] = f.astc_high[c];
+    }
+    let invert = order(&mut e, range, 3);
+    let w = f.selectors.map(|s| if invert { 7 - s } else { s });
+    out.push(candidate(5, 0, &e, &w, 0, f.err));
+}
+
+// Ported from Basis Universal v2.50, `astc_mode10`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode10(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 13;
+    let f = fit(block, ASTC_4, range, true, effort);
+    let mut e = [0u8; 8];
+    for c in 0..4 {
+        e[c * 2] = f.astc_low[c];
+        e[c * 2 + 1] = f.astc_high[c];
+    }
+    let invert = order(&mut e, range, 4);
+    let w = f.selectors.map(|s| if invert { 15 - s } else { s });
+    out.push(candidate(10, 0, &e, &w, 0, f.err));
+}
+
+// Ported from Basis Universal v2.50, `astc_mode6`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode6(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 18;
+    for rot in 0..3usize {
+        let mut rgb = *block;
+        let mut a = *block;
+        for i in 0..16 {
+            let c = a[i][rot];
+            a[i] = [c, c, c, 255];
+            rgb[i][rot] = 255;
+        }
+        let fr = fit(&rgb, BC7_2, range, false, effort);
+        let fa = fit(&a, BC7_2, range, false, effort);
+        let total = fr.err + fa.err / 3;
+        let pick = |c: usize| if rot == c { &fa } else { &fr };
+        let mut e = [0u8; 6];
+        for c in 0..3 {
+            e[c * 2] = pick(c).astc_low[c];
+            e[c * 2 + 1] = pick(c).astc_high[c];
+        }
+        let invert = order(&mut e, range, 3);
+        let mut w = [0u8; 32];
+        for i in 0..16 {
+            let (ri, ai) = (fr.selectors[i], fa.selectors[i]);
+            w[i * 2] = if invert { 3 - ri } else { ri };
+            w[i * 2 + 1] = if invert { 3 - ai } else { ai };
+        }
+        out.push(candidate(6, 0, &e, &w, rot as u8, total));
+    }
+}
+
+// Ported from Basis Universal v2.50, `astc_mode13`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode13(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 20;
+    for rot in 0..4usize {
+        let mut rgb = *block;
+        let mut a = *block;
+        for i in 0..16 {
+            let c = a[i][rot];
+            a[i] = [c, c, c, 255];
+            rgb[i][rot] = rgb[i][3];
+            rgb[i][3] = 255;
+        }
+        let fr = fit(&rgb, BC7_1, range, false, effort);
+        let fa = fit(&a, BC7_1, range, false, effort);
+        let total = fr.err + fa.err / 3;
+        let pick = |c: usize| if rot == c { &fa } else { &fr };
+        let mut e = [0u8; 8];
+        for c in 0..3 {
+            e[c * 2] = pick(c).astc_low[c];
+            e[c * 2 + 1] = pick(c).astc_high[c];
+        }
+        if rot == 3 {
+            e[6] = fa.astc_low[0];
+            e[7] = fa.astc_high[0];
+        } else {
+            e[6] = fr.astc_low[rot];
+            e[7] = fr.astc_high[rot];
+        }
+        let invert = order(&mut e, range, 4);
+        let mut w = [0u8; 32];
+        for i in 0..16 {
+            let (ri, ai) = (fr.selectors[i], fa.selectors[i]);
+            w[i * 2] = if invert { 1 - ri } else { ri };
+            w[i * 2 + 1] = if invert { 1 - ai } else { ai };
+        }
+        out.push(candidate(13, 0, &e, &w, rot as u8, total));
+    }
+}
+
+// Ported from Basis Universal v2.50, `astc_mode11_or_17` (mode 17).
+// Apache-2.0, (C) Binomial LLC. Modified.
+fn mode17(block: &Block, out: &mut Vec<Candidate>, effort: Effort) {
+    let range = 20;
+    let rgb: Block = block.map(|c| [c[0], c[0], c[0], 255]);
+    let a: Block = block.map(|c| [c[3], c[3], c[3], 255]);
+    let fr = fit(&rgb, BC7_2, range, false, effort);
+    let fa = fit(&a, BC7_2, range, false, effort);
+    let total = fr.err / 3 + fa.err / 3;
+    let e = [
+        fr.astc_low[0],
+        fr.astc_high[0],
+        fa.astc_low[0],
+        fa.astc_high[0],
+    ];
+    let mut w = [0u8; 32];
+    for i in 0..16 {
+        w[i * 2] = fr.selectors[i];
+        w[i * 2 + 1] = fa.selectors[i];
+    }
+    out.push(candidate(17, 0, &e, &w, 3, total));
+}
+
+/// The texels of each subset of a two-subset BC7 pattern, and each texel's
+/// position within its subset.
+fn split2(block: &Block, bc7_pattern: usize) -> ([[[u8; 4]; 16]; 2], [usize; 2], [usize; 16]) {
+    let mut parts = [[[0u8; 4]; 16]; 2];
+    let mut counts = [0usize; 2];
+    let mut index = [0usize; 16];
+    for i in 0..16 {
+        let p = bc7::PARTITION2[bc7_pattern][i] as usize;
+        index[i] = counts[p];
+        parts[p][counts[p]] = block[i];
+        counts[p] += 1;
+    }
+    (parts, counts, index)
+}
+
+// Ported from Basis Universal v2.50, `estimate_partition2`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn estimate_partition2(weights: &[u8], comps: usize, block: &Block) -> usize {
+    let (mut best_err, mut best) = (u64::MAX, 0);
+    for (pattern, &(bc7_pattern, _)) in bc7::COMMON2.iter().enumerate() {
+        let (parts, counts, _) = split2(block, bc7_pattern as usize);
+        let mut total = 0u64;
+        let mut subset = 0;
+        while subset < 2 && total < best_err {
+            total += cell::estimate(weights, comps, &parts[subset][..counts[subset]], best_err);
+            subset += 1;
+        }
+        if total < best_err {
+            best_err = total;
+            best = pattern;
+        }
+    }
+    best
+}
+
+// Ported from Basis Universal v2.50, `estimate_partition2_list`.
+// Apache-2.0, (C) Binomial LLC. Modified.
+fn estimate_partition2_list(
+    weights: &[u8],
+    comps: usize,
+    block: &Block,
+    max_parts: usize,
+) -> Vec<usize> {
+    let mut parts = vec![0usize; max_parts];
+    let mut errs = vec![u64::MAX; max_parts];
+    for (pattern, &(bc7_pattern, _)) in bc7::COMMON2.iter().enumerate() {
+        let (sub, counts, _) = split2(block, bc7_pattern as usize);
+        let total: u64 = (0..2)
+            .map(|s| cell::estimate(weights, comps, &sub[s][..counts[s]], u64::MAX))
+            .sum();
+        for i in 0..max_parts {
+            if total < errs[i] {
+                for j in (i + 1..max_parts).rev() {
+                    parts[j] = parts[j - 1];
+                    errs[j] = errs[j - 1];
+                }
+                parts[i] = pattern;
+                errs[i] = total;
+                break;
+            }
+        }
+    }
+    parts
+}
+
+// Ported from Basis Universal v2.50, `astc_mode4`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode4(block: &Block, out: &mut Vec<Candidate>, effort: Effort, estimate: bool) {
+    let range = 12;
+    let patterns: Vec<usize> = if estimate {
+        vec![estimate_partition2(BC7_2.w, 3, block)]
+    } else {
+        (0..bc7::COMMON2.len()).collect()
+    };
+    for pattern in patterns {
+        let (bc7_pattern, inv) = bc7::COMMON2[pattern];
+        let (parts, counts, index) = split2(block, bc7_pattern as usize);
+        let fits: [cell::Fit; 2] =
+            std::array::from_fn(|p| fit(&parts[p][..counts[p]], BC7_2, range, false, effort));
+        let total = fits[0].err + fits[1].err;
+        let (p0, p1) = if inv { (1, 0) } else { (0, 1) };
+        let mut e = [0u8; 12];
+        let mut invert = [false; 2];
+        for (k, p) in [p0, p1].into_iter().enumerate() {
+            let s = &mut e[k * 6..k * 6 + 6];
+            for c in 0..3 {
+                s[c * 2] = fits[p].astc_low[c];
+                s[c * 2 + 1] = fits[p].astc_high[c];
+            }
+            invert[k] = order(s, range, 3);
+        }
+        let mut w = [0u8; 16];
+        for i in 0..16 {
+            let bc7_part = bc7::PARTITION2[bc7_pattern as usize][i] as usize;
+            let mut v = fits[bc7_part].selectors[index[i]];
+            let astc_part = if inv { 1 - bc7_part } else { bc7_part };
+            if invert[astc_part] {
+                v = 3 - v;
+            }
+            w[i] = v;
+        }
+        out.push(candidate(4, pattern, &e, &w, 0, total));
+    }
+}
+
+// Ported from Basis Universal v2.50, `astc_mode9_or_16`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn mode9_or_16(
+    mode: usize,
+    source: &Block,
+    out: &mut Vec<Candidate>,
+    effort: Effort,
+    list_size: usize,
+) {
+    let block: Block = if mode == 16 {
+        source.map(|c| [c[0], 0, 0, c[3]])
+    } else {
+        *source
+    };
+    let range = if mode == 16 { 20 } else { 8 };
+    let patterns: Vec<usize> = match list_size {
+        0 => (0..bc7::COMMON2.len()).collect(),
+        1 => vec![estimate_partition2(BC7_2.w, 4, &block)],
+        n => estimate_partition2_list(BC7_2.w, 4, &block, n.min(8)),
+    };
+    for pattern in patterns {
+        let (bc7_pattern, inv) = bc7::COMMON2[pattern];
+        let (parts, counts, index) = split2(&block, bc7_pattern as usize);
+        let fits: [cell::Fit; 2] =
+            std::array::from_fn(|p| fit(&parts[p][..counts[p]], BC7_2, range, true, effort));
+        let mut total = 0u64;
+        for s in 0..2 {
+            if mode == 16 {
+                let f = &fits[s];
+                let mut colors = [[0u8; 4]; 4];
+                for c in 0..4 {
+                    let k = if c < 3 { 0 } else { 3 };
+                    colors[0][c] = unq(range, f.astc_low[k]) as u8;
+                    colors[3][c] = unq(range, f.astc_high[k]) as u8;
+                }
+                for i in 1..3 {
+                    for c in 0..4 {
+                        colors[i][c] = cell::interpolate_linear(
+                            colors[0][c] as u32,
+                            colors[3][c] as u32,
+                            BC7_2.w[i] as u32,
+                        ) as u8;
+                    }
+                }
+                for p in 0..counts[s] {
+                    let mut orig = parts[s][p];
+                    orig[1] = orig[0];
+                    orig[2] = orig[0];
+                    total += dist_la(&orig, &colors[f.selectors[p] as usize]);
+                }
+            } else {
+                total += fits[s].err;
+            }
+        }
+        let part = if inv { [1, 0] } else { [0, 1] };
+        let mut e = [0u8; 16];
+        let mut invert = [false; 2];
+        for p in 0..2 {
+            let f = &fits[part[p]];
+            if mode == 16 {
+                e[p * 4] = f.astc_low[0];
+                e[p * 4 + 1] = f.astc_high[0];
+                e[p * 4 + 2] = f.astc_low[3];
+                e[p * 4 + 3] = f.astc_high[3];
+            } else {
+                let s = &mut e[p * 8..p * 8 + 8];
+                for c in 0..4 {
+                    s[c * 2] = f.astc_low[c];
+                    s[c * 2 + 1] = f.astc_high[c];
+                }
+                invert[p] = order(s, range, 4);
+            }
+        }
+        let mut w = [0u8; 16];
+        for i in 0..16 {
+            let bc7_part = bc7::PARTITION2[bc7_pattern as usize][i] as usize;
+            let mut v = fits[bc7_part].selectors[index[i]];
+            let astc_part = if inv { 1 - bc7_part } else { bc7_part };
+            if invert[astc_part] {
+                v = 3 - v;
+            }
+            w[i] = v;
+        }
+        let values = if mode == 16 { 8 } else { 16 };
+        out.push(candidate(mode, pattern, &e[..values], &w, 0, total));
     }
 }
 
@@ -778,6 +1164,56 @@ fn pack(c: &Candidate, h: &Hints) -> [u8; 16] {
     out
 }
 
+// Ported from Basis Universal v2.50, `compute_bc1_hints`. Apache-2.0,
+// (C) Binomial LLC. Modified.
+fn bc1_hints(best: &Candidate, block: &Block, decoded: &Block) -> (bool, bool) {
+    let mode = best.u.mode;
+    if mode == SOLID || (!HAS_BC1_HINT0[mode] && !HAS_BC1_HINT1[mode]) {
+        return (false, false);
+    }
+    let reference = bc1::decode(&bc1::encode(decoded, None));
+    // Pack to UASTC and read it back: packing may swap the endpoints.
+    let none = Hints {
+        etc1: EtcBlock::default(),
+        etc1_bias: 0,
+        eac_table: 0,
+        eac_multiplier: 1,
+        bc1_hint0: false,
+        bc1_hint1: false,
+    };
+    let packed = pack(best, &none);
+    let mut u = unpack::unpack(&packed, false).expect("a block the encoder wrote");
+    u.mode = mode;
+    u.pattern = best.u.pattern;
+    let hint1_px = if HAS_BC1_HINT1[mode] {
+        bc1::decode(&bc1::hint1(&u, decoded))
+    } else {
+        [[0; 4]; 16]
+    };
+    let hint0_px = if HAS_BC1_HINT0[mode] {
+        bc1::decode(&bc1::hint0(&u))
+    } else {
+        [[0; 4]; 16]
+    };
+    let rgb = |a: &[u8; 4], b: &[u8; 4]| -> u64 {
+        (0..3)
+            .map(|c| (a[c] as i32 - b[c] as i32).pow(2) as u64)
+            .sum()
+    };
+    let (mut t, mut h0, mut h1) = (0u64, 0u64, 0u64);
+    for i in 0..16 {
+        t += rgb(&block[i], &reference[i]);
+        h0 += rgb(&block[i], &hint0_px[i]);
+        h1 += rgb(&block[i], &hint1_px[i]);
+    }
+    let (t, h0, h1) = ((t as f32).sqrt(), (h0 as f32).sqrt(), (h1 as f32).sqrt());
+    let thresh = 1.075f32;
+    (
+        HAS_BC1_HINT0[mode] && h0 <= t * thresh,
+        HAS_BC1_HINT1[mode] && h1 <= t * thresh,
+    )
+}
+
 /// `DEFAULT_BC7_ERROR_WEIGHT` and `UASTC_ERROR_THRESH`.
 const BC7_ERROR_WEIGHT: u64 = 50;
 const UASTC_ERROR_THRESH: f32 = 1.3;
@@ -814,22 +1250,54 @@ pub(crate) fn encode(block: &Block, level: Level) -> [u8; 16] {
         least_squares_passes: cfg.least_squares_passes,
         uber_level: cfg.uber_level,
     };
-    let _ = cfg.estimate_partition;
     let on = |m: u32| cfg.mode_mask & (1 << m) != 0;
+    let est = cfg.estimate_partition;
+    let list = if est { 4 } else { 0 };
 
-    let mut results: Vec<Candidate> = Vec::with_capacity(32);
-    if is_la && on(15) {
-        mode15(block, &mut results, effort);
+    let mut results: Vec<Candidate> = Vec::with_capacity(64);
+    if is_la {
+        if on(15) {
+            mode15(block, &mut results, effort);
+        }
+        if on(16) {
+            mode9_or_16(16, block, &mut results, effort, list);
+        }
+        if on(17) {
+            mode17(block, &mut results, effort);
+        }
     }
-    if !has_alpha && on(0) {
-        mode0(block, &mut results, effort);
+    if !has_alpha {
+        if on(0) {
+            mode0(block, &mut results, effort);
+        }
+        if on(1) {
+            mode1(block, &mut results, effort);
+        }
+        if on(4) {
+            mode4(block, &mut results, effort, est);
+        }
+        if on(5) {
+            mode5(block, &mut results, effort);
+        }
+        if on(6) {
+            mode6(block, &mut results, effort);
+        }
     }
     if try_alpha {
+        if on(9) {
+            mode9_or_16(9, block, &mut results, effort, list);
+        }
+        if on(10) {
+            mode10(block, &mut results, effort);
+        }
         if on(11) {
             mode11(block, &mut results, effort);
         }
         if on(12) {
             mode12(block, &mut results, effort);
+        }
+        if on(13) {
+            mode13(block, &mut results, effort);
         }
     }
 
@@ -897,8 +1365,11 @@ pub(crate) fn encode(block: &Block, level: Level) -> [u8; 16] {
     let best = results[best_index.expect("at least one mode is tried")];
     let decoded = unpack::decode(&best.u, false);
 
-    let (bc1_hint0, bc1_hint1) = (false, false);
-    let _ = cfg.bc1_hints;
+    let (bc1_hint0, bc1_hint1) = if cfg.bc1_hints {
+        bc1_hints(&best, block, &decoded)
+    } else {
+        (false, false)
+    };
 
     let (eac_table, eac_multiplier) = if HAS_ALPHA[best.u.mode] {
         let alpha: [u8; 16] = std::array::from_fn(|i| decoded[i][3]);

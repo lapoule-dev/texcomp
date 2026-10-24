@@ -124,6 +124,18 @@ fn level_0_is_byte_identical() {
     compare(Level::Fastest, 0);
 }
 
+/// **Level 1 writes upstream's blocks, byte for byte.**
+#[test]
+fn level_1_is_byte_identical() {
+    compare(Level::Faster, 1);
+}
+
+/// **Level 2 writes upstream's blocks, byte for byte.**
+#[test]
+fn level_2_is_byte_identical() {
+    compare(Level::Default, 2);
+}
+
 /// **The whole-image entry point encodes each block as the per-block one
 /// does**, replicating the edge texels of a size that is not a multiple of 4.
 #[test]

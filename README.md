@@ -40,8 +40,7 @@ device reports.
   (`UastcBlock::encode`, `encode_image`), decodes it and transcodes it to
   ASTC 4×4 and BC7. Every block is byte-identical to upstream's, checked
   against vectors captured from upstream (`tests/uastc_encode.rs`,
-  `tests/uastc_reference.rs`). Effort level 0 is ported; levels 1 and 2 are
-  in progress.
+  `tests/uastc_reference.rs`), at upstream's effort levels 0, 1 and 2.
 
 ## Quality and cost
 
@@ -177,9 +176,8 @@ Without `gpu` the crate depends on nothing GPU-related.
 
 - **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
   pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
-  the UASTC encoder at effort level 0, UASTC decode and UASTC to ASTC 4×4
+  the UASTC encoder at effort levels 0–2, UASTC decode and UASTC to ASTC 4×4
   and BC7, all byte-identical to upstream.
-- **Next**: the UASTC encoder at effort levels 1 and 2.
 
 ## Licence
 

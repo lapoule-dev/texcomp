@@ -25,6 +25,7 @@
 //! from it (`tests/uastc_encode.rs`, `tests/uastc_reference.rs`).
 
 mod astc;
+mod bc1;
 mod bc7;
 mod cell;
 mod encode;
@@ -127,6 +128,11 @@ impl UastcBlock {
 pub enum Level {
     /// Level 0: four modes and the solid colour, no BC1 hints.
     Fastest,
+    /// Level 1: eight modes and the solid colour, partition estimation, BC1
+    /// hints.
+    Faster,
+    /// Level 2, upstream's default: thirteen modes and the solid colour.
+    Default,
 }
 
 /// Why an image cannot be encoded.
