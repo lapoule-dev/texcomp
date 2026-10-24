@@ -1,24 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) lapoule.dev
 
-//! # texcomp
-//!
-//! GPU block-compressed textures, encoded on the fly from RGBA8.
-//!
-//! Imagery and other textures arrive as JPEG or PNG and are decoded to RGBA8.
-//! Just before upload they are encoded to a block format the GPU samples
-//! natively, which keeps a quarter of the bytes resident. Nothing here reads
-//! or writes a compressed file.
-//!
-//! - [`gpu`] (feature `gpu`): WGSL compute kernels that write [`BlockFormat`]
-//!   blocks from RGBA8 levels, and the host-side dispatch around them on
-//!   wgpu 29.
-//! - The CPU encoder, for devices without compute shaders or without a format
-//!   the kernels write, lands in this crate next. It needs nothing but `std`
-//!   and builds for `wasm32-unknown-unknown`.
-//!
-//! Which encoder a device uses is the application's choice, made from what
-//! the device reports; [`gpu::runs_on`] says whether the kernels can run.
+// The crate doc is the README, so GitHub and rustdoc show one text and its
+// example compiles as a doctest. The example needs the `gpu` feature; without
+// it the doc is a pointer to the README.
+#![cfg_attr(feature = "gpu", doc = include_str!("../README.md"))]
+#![cfg_attr(
+    not(feature = "gpu"),
+    doc = "GPU block-compressed textures, encoded on the fly from RGBA8. \
+           Build the docs with `--features gpu` for the full README."
+)]
 
 #[cfg(feature = "gpu")]
 mod astc;
