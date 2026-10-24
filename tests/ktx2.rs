@@ -426,10 +426,27 @@ fn ours(name: &str) -> Vec<(String, Texture)> {
 /// upstream's `-unpack` accepted** in the capture.
 #[test]
 fn the_writer_still_writes_the_files_the_tools_accepted() {
+    // The files carry `KTXwriter = "texcomp <version>"`. The capture was made by
+    // one version; a release changes only those digits, at the same length, so
+    // they are compared as this version's. A version of another length moves
+    // every offset after the key: re-run the capture then.
+    let captured: &[u8] = b"texcomp 0.1.0";
+    let ours_now = concat!("texcomp ", env!("CARGO_PKG_VERSION")).as_bytes();
+    assert_eq!(
+        captured.len(),
+        ours_now.len(),
+        "the writer's version changed length: re-run the capture (tests/fixtures/ktx2/README.md)"
+    );
     for (name, _, _) in &UPSTREAM[1..] {
         for (file, t) in ours(name) {
             let path = ktx2_fixtures().join(format!("ours/{file}.ktx2"));
-            assert!(ktx2::write(&t).expect("writes") == slurp(&path), "{file}");
+            let mut expected = slurp(&path);
+            let at = expected
+                .windows(captured.len())
+                .position(|w| w == captured)
+                .unwrap_or_else(|| panic!("{file}: no KTXwriter value"));
+            expected[at..at + captured.len()].copy_from_slice(ours_now);
+            assert!(ktx2::write(&t).expect("writes") == expected, "{file}");
         }
     }
 }
