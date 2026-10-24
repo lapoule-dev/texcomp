@@ -4,9 +4,9 @@
 #
 # Runs inside the capture image (see Dockerfile). For every tile and effort
 # level: encode with the upstream tool (UASTC LDR 4x4, no RDO, no Zstandard,
-# no mips, one thread), dump the blocks, their ASTC 4x4 transcodes and decode
-# digests, and cross-check the ASTC bytes against the upstream tool's own
-# -unpack output.
+# no mips, one thread), dump the blocks, their ASTC 4x4 and BC7 transcodes and
+# decode digests, and cross-check the ASTC and BC7 bytes against the upstream
+# tool's own -unpack output.
 #   /in/tiles           256² tiles, levels 0..2 -> /out/level<N>
 #   /in/coverage-tiles  64² tiles,  levels 3..4 -> /out/coverage/level<N>
 set -eu
@@ -27,6 +27,9 @@ capture() { # <input dir> <output dir> <levels...>
             # The tool's own transcode (format 10 = ASTC 4x4 RGBA), as KTX1.
             (cd /work/run && basisu -unpack -format_only 10 -ktx_only "$name.ktx2" > unpack.log)
             python3 /capture/check_ktx1.py /work/run/*ASTC*.ktx "$out/level$level/$name.astc"
+            # And format 6 = BC7 RGBA.
+            (cd /work/run && basisu -unpack -format_only 6 -ktx_only "$name.ktx2" > unpack-bc7.log)
+            python3 /capture/check_ktx1.py /work/run/*BC7*.ktx "$out/level$level/$name.bc7"
         done
     done
 }
