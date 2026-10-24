@@ -25,6 +25,10 @@ transcoder/basisu_transcoder.cpp and transcoder/basisu_transcoder_uastc.h:
                         astc_interpolate, get_anchor_indices
   src/uastc/astc.rs     pack_astc_block, pack_astc_solid_block,
                         transcode_uastc_to_astc and their bit-packing helpers
+  src/uastc/bc7.rs      transcode_uastc_to_bc7, determine_shared_pbits,
+                        determine_unique_pbits, encode_bc7_block, the BC7
+                        partition, anchor and mode tables, the BC7 part of
+                        uastc_init
 
 Each ported item carries an attribution comment and a notice of modification
 at its head. Like the rest of texcomp, those files are offered under MIT OR

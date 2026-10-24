@@ -36,8 +36,8 @@ device reports.
   `wasm32-unknown-unknown` clean): a port of the block layer of
   [Basis Universal](https://github.com/BinomialLLC/basis_universal) v2.50, for
   devices without compute shaders, such as WebGL2. UASTC LDR 4×4 is its
-  intermediate: `texcomp::uastc` decodes it and transcodes it to ASTC 4×4,
-  bit-exact against vectors captured from upstream
+  intermediate: `texcomp::uastc` decodes it and transcodes it to ASTC 4×4
+  and BC7, bit-exact against vectors captured from upstream
   (`tests/uastc_reference.rs`). The encoder is in progress.
 
 ## Quality and cost
@@ -174,9 +174,9 @@ Without `gpu` the crate depends on nothing GPU-related.
 
 - **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
   pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
-  UASTC decode and UASTC to ASTC 4×4, bit-exact against upstream.
+  UASTC decode and UASTC to ASTC 4×4 and BC7, bit-exact against upstream.
 - **Next**: the UASTC encoder (effort levels 0–2), bit-exact against
-  upstream, and UASTC to BC7.
+  upstream.
 
 ## Licence
 

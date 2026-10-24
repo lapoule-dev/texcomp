@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) lapoule.dev
 
-//! UASTC LDR 4×4 on the CPU: the reference decode and the transcode to
-//! ASTC 4×4.
+//! UASTC LDR 4×4 on the CPU: the reference decode and the transcodes to
+//! ASTC 4×4 and BC7.
 //!
 //! UASTC is a 4×4, 16-byte block format whose every block stands for an
 //! ASTC 4×4 block (plus hints that make other transcodes cheap). It is the
@@ -13,6 +13,8 @@
 //! - [`UastcBlock::to_astc_4x4`] (and [`transcode_to_astc_4x4`] for a run of
 //!   blocks): the ASTC 4×4 block that decodes to exactly the texels the
 //!   UASTC block stands for.
+//! - [`UastcBlock::to_bc7`] (and [`transcode_to_bc7`]): the BC7 block, for
+//!   GPUs without ASTC.
 //! - [`UastcBlock::decode_rgba8`]: those texels, as ASTC's LDR decoder
 //!   computes them, with the linear or the sRGB endpoint expansion.
 //!
@@ -21,6 +23,7 @@
 //! (`tests/uastc_reference.rs`).
 
 mod astc;
+mod bc7;
 mod tables;
 mod unpack;
 
@@ -90,6 +93,13 @@ impl UastcBlock {
         Ok(astc::pack(&unpack::unpack(&self.0, true)?))
     }
 
+    /// The BC7 block it transcodes to: lossless for some modes, otherwise
+    /// the endpoints are requantised to BC7's precisions (about 0.75–1.5 dB
+    /// below the ASTC transcode).
+    pub fn to_bc7(&self) -> Result<[u8; BLOCK_BYTES], InvalidBlock> {
+        Ok(bc7::pack(&unpack::unpack(&self.0, false)?))
+    }
+
     /// The block's 16 texels, row-major, as ASTC's LDR decoder computes them.
     ///
     /// `srgb` selects the decode of an `*_SRGB` texture format, which expands
@@ -106,6 +116,14 @@ impl UastcBlock {
 /// block is invalid, the blocks before it are written and the rest of `dst`
 /// is left as it was.
 pub fn transcode_to_astc_4x4(src: &[u8], dst: &mut [u8]) -> Result<(), TranscodeError> {
+    transcode_run(src, dst, UastcBlock::to_astc_4x4)
+}
+
+fn transcode_run(
+    src: &[u8],
+    dst: &mut [u8],
+    one: impl Fn(&UastcBlock) -> Result<[u8; BLOCK_BYTES], InvalidBlock>,
+) -> Result<(), TranscodeError> {
     let (blocks, rest) = src.as_chunks::<BLOCK_BYTES>();
     let (out, out_rest) = dst.as_chunks_mut::<BLOCK_BYTES>();
     if !rest.is_empty() || !out_rest.is_empty() || out.len() != blocks.len() {
@@ -115,11 +133,16 @@ pub fn transcode_to_astc_4x4(src: &[u8], dst: &mut [u8]) -> Result<(), Transcode
         });
     }
     for (index, (s, d)) in blocks.iter().zip(out).enumerate() {
-        *d = UastcBlock::from_bytes(*s)
-            .to_astc_4x4()
+        *d = one(&UastcBlock::from_bytes(*s))
             .map_err(|error| TranscodeError::Block { index, error })?;
     }
     Ok(())
+}
+
+/// Transcodes a run of UASTC blocks into BC7 blocks of the same layout, on
+/// the same terms as [`transcode_to_astc_4x4`].
+pub fn transcode_to_bc7(src: &[u8], dst: &mut [u8]) -> Result<(), TranscodeError> {
+    transcode_run(src, dst, UastcBlock::to_bc7)
 }
 
 #[cfg(test)]
@@ -169,6 +192,7 @@ mod tests {
         let bad = UastcBlock::from_bytes(v.to_le_bytes());
         assert_eq!(bad.mode(), Ok(3));
         assert_eq!(bad.to_astc_4x4(), Err(InvalidBlock::Pattern));
+        assert_eq!(bad.to_bc7(), Err(InvalidBlock::Pattern));
         assert_eq!(bad.decode_rgba8(true), Err(InvalidBlock::Pattern));
 
         let mut run = solid([1, 2, 3, 4]).to_bytes().to_vec();
@@ -210,6 +234,7 @@ mod tests {
                 modes[mode as usize] += 1;
             }
             let _ = block.to_astc_4x4();
+            let _ = block.to_bc7();
             let _ = block.decode_rgba8(false);
             let _ = block.decode_rgba8(true);
         }

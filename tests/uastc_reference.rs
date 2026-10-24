@@ -4,7 +4,7 @@
 //! The CPU transcoders against vectors captured from upstream.
 //!
 //! `tests/fixtures/uastc` holds UASTC blocks the upstream encoder wrote,
-//! their ASTC 4×4 transcodes and digests of their decoded texels, all
+//! their ASTC 4×4 and BC7 transcodes and digests of their decoded texels, all
 //! captured from the upstream tool at the commit `NOTICE` names (the
 //! fixtures' README has the command lines):
 //!
@@ -17,6 +17,7 @@
 //! # What this covers
 //!
 //! - **ASTC 4×4:** every block's transcode, byte for byte (114,688 blocks).
+//! - **BC7:** every block's transcode, byte for byte, all 19 UASTC modes.
 //! - **Decode:** every block's sixteen texels, in both the linear and the
 //!   sRGB decode, compared through a 32-bit FNV-1a digest of the 64 bytes
 //!   (the fixtures keep digests, not texels, to stay small).
@@ -26,7 +27,7 @@
 //! # What it does not cover
 //!
 //! The encoder (the inputs are kept in `tiles/` and `coverage-tiles/` for
-//! it), BC7 and the other transcodes, and blocks no upstream encoder writes
+//! it), the ETC and BC1–5 transcodes, and blocks no upstream encoder writes
 //! (a hand-made block can hold values the encoder never emits; the unit
 //! tests only check such blocks are read or refused without panicking).
 
@@ -143,6 +144,40 @@ fn astc_transcode_is_bit_exact() {
     );
 }
 
+/// **Every block transcodes to the same BC7 bytes as upstream's**, and
+/// every UASTC mode reaches the BC7 mode upstream maps it to.
+#[test]
+fn bc7_transcode_is_bit_exact() {
+    let mut total = 0usize;
+    let mut wrong = Vec::new();
+    let mut per_mode = [(0usize, 0usize); uastc::MODES];
+    for case in cases() {
+        let src = read(&case, "uastc");
+        let want = read(&case, "bc7");
+        assert_eq!(want.len(), src.len(), "{}", case.name);
+        for (i, (block, want)) in blocks(&src).zip(want.as_chunks::<16>().0).enumerate() {
+            total += 1;
+            let mode = block.mode().expect("valid mode") as usize;
+            per_mode[mode].0 += 1;
+            let got = block.to_bc7();
+            if got.as_ref() != Ok(want) {
+                per_mode[mode].1 += 1;
+                wrong.push(format!(
+                    "{} block {i} (mode {mode}): got {got:02x?}, want {want:02x?}",
+                    case.name
+                ));
+            }
+        }
+    }
+    println!("(blocks, wrong) per UASTC mode: {per_mode:?}");
+    assert!(
+        wrong.is_empty(),
+        "{} of {total} blocks differ; first: {:#?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(8)]
+    );
+}
+
 /// **Every block decodes to the same texels as upstream's reference
 /// decoder, linear and sRGB.**
 #[test]
@@ -188,6 +223,9 @@ fn slice_transcode_and_mode_coverage() {
         let want = read(&case, "astc");
         let mut got = vec![0u8; src.len()];
         uastc::transcode_to_astc_4x4(&src, &mut got).expect("valid blocks");
+        assert!(got == want, "{}", case.name);
+        let want = read(&case, "bc7");
+        uastc::transcode_to_bc7(&src, &mut got).expect("valid blocks");
         assert!(got == want, "{}", case.name);
         for block in blocks(&src) {
             seen[block.mode().expect("valid mode") as usize] += 1;
