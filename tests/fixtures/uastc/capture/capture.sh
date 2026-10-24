@@ -8,7 +8,7 @@
 # decode digests, and cross-check the ASTC and BC7 bytes against the upstream
 # tool's own -unpack output.
 #   /in/tiles           256² tiles, levels 0..2 -> /out/level<N>
-#   /in/coverage-tiles  64² tiles,  levels 3..4 -> /out/coverage/level<N>
+#   /in/coverage-tiles  64² tiles,  levels 0..4 -> /out/coverage/level<N>
 set -eu
 mkdir -p /out /work
 
@@ -35,4 +35,4 @@ capture() { # <input dir> <output dir> <levels...>
 }
 
 capture /in/tiles /out 0 1 2
-capture /in/coverage-tiles /out/coverage 3 4
+capture /in/coverage-tiles /out/coverage 0 1 2 3 4

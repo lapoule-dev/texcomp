@@ -20,7 +20,9 @@ CMake `Release`, default options); `toolchain.txt` records it.
   set never does (crops, grey, grey with alpha, alpha noise, imagery with an
   alpha ramp, and blocks only the three-subset, mode-7 and RGBA 2-bit modes
   represent exactly). Encoded at effort levels 3 and 4, where every mode is
-  tried.
+  tried, and at levels 0 to 2 for the encoder's tests (added on 24 Oct. 2026
+  by a third run of the same capture, whose other outputs came out
+  byte-identical to the committed ones).
 
 Both are written by `cargo test --test uastc_reference -- --ignored
 cut_reference_tiles`; the committed PNGs are what upstream encoded.
@@ -71,4 +73,4 @@ docker buildx build --builder stl-builder-k8s --platform linux/amd64 \
 `<dir>` then holds `level0..2/`, `coverage/`, `commands.txt`,
 `toolchain.txt` and upstream's licence.
 
-Size: about 6.5 MB of outputs and 1 MB of input PNGs.
+Size: about 6.9 MB of outputs and 1 MB of input PNGs.
