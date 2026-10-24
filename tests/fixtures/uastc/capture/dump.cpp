@@ -5,6 +5,7 @@
 // tool wrote and writes, next to `<out>`:
 //   <out>.uastc    the blocks, 16 bytes each, row-major;
 //   <out>.astc     each block's ASTC 4x4 transcode (transcode_uastc_to_astc);
+//   <out>.bc7      each block's BC7 transcode (transcode_uastc_to_bc7);
 //   <out>.decoded  per block, two little-endian u32 FNV-1a digests of the 64
 //                  RGBA8 bytes unpack_uastc decodes: linear, then sRGB.
 // Built against upstream's transcoder only; see capture.sh.
@@ -57,10 +58,11 @@ int main(int argc, char** argv) {
     const uint32_t bx = (width + 3) / 4, by = (height + 3) / 4;
     if (len != (uint64_t)bx * by * 16 || off + len > k.size()) { fprintf(stderr, "bad level 0\n"); return 1; }
 
-    std::vector<uint8_t> uastc(k.begin() + off, k.begin() + off + len), astc(len), decoded;
+    std::vector<uint8_t> uastc(k.begin() + off, k.begin() + off + len), astc(len), bc7(len), decoded;
     for (uint32_t i = 0; i < bx * by; i++) {
         const basist::uastc_block& blk = *reinterpret_cast<const basist::uastc_block*>(&uastc[i * 16]);
         if (!basist::transcode_uastc_to_astc(blk, &astc[i * 16])) { fprintf(stderr, "block %u: transcode failed\n", i); return 1; }
+        if (!basist::transcode_uastc_to_bc7(blk, &bc7[i * 16])) { fprintf(stderr, "block %u: BC7 transcode failed\n", i); return 1; }
         for (int srgb = 0; srgb < 2; srgb++) {
             basist::color32 px[16];
             if (!basist::unpack_uastc(blk, px, srgb != 0)) { fprintf(stderr, "block %u: unpack failed\n", i); return 1; }
@@ -71,6 +73,7 @@ int main(int argc, char** argv) {
     const std::string out = argv[2];
     spit(out + ".uastc", uastc);
     spit(out + ".astc", astc);
+    spit(out + ".bc7", bc7);
     spit(out + ".decoded", decoded);
     printf("%s: %ux%u, %u blocks\n", argv[1], width, height, bx * by);
     return 0;
