@@ -7,7 +7,51 @@ the MIT license (LICENSE-MIT), at your option.
 Ported code
 -----------
 
-No third-party code has been ported into this repository yet. The CPU encoder
-and transcoders will be a port of parts of Basis Universal (Binomial LLC,
-Apache-2.0); each ported item will carry an attribution at its head, and this
-file will name the upstream version and commit when the first one lands.
+Parts of this repository are ported from Basis Universal, by Binomial LLC:
+
+  Version:  v2.50
+  Tag:      v2_50
+  Commit:   9bebe16726b3a61c8c213eeee3b7cffb462ef34e
+  Source:   https://github.com/BinomialLLC/basis_universal
+  License:  Apache License, Version 2.0 (kept as LICENSE-APACHE-UPSTREAM)
+  Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
+
+Ported (and modified: translated from C++ to Rust) from
+transcoder/basisu_transcoder.cpp and transcoder/basisu_transcoder_uastc.h:
+
+  src/uastc/tables.rs   the UASTC mode tables, partition patterns, anchors and
+                        seeds, ASTC integer-sequence and unquantisation tables
+  src/uastc/unpack.rs   unpack_uastc (block reading and reference decode),
+                        astc_interpolate, get_anchor_indices
+  src/uastc/astc.rs     pack_astc_block, pack_astc_solid_block,
+                        transcode_uastc_to_astc and their bit-packing helpers
+
+Each ported item carries an attribution comment at its head. Those files may be
+used under the Apache License, Version 2.0 only, as the upstream code is.
+
+Upstream NOTICE (reproduced as Apache License 2.0 section 4(d) requires):
+
+  Basis Universal(TM) Supercompressed GPU Texture Compression Library
+
+  Copyright (c) 2016-2026 Binomial LLC.
+  All rights reserved except as granted under the Apache 2.0 license
+  (https://github.com/BinomialLLC/basis_universal/blob/master/LICENSE).
+  "Basis Universal" is a trademark of Binomial LLC.
+
+  The documents in the Basis Universal wiki, and the Basis Universal library,
+  example, and tool source code, fall under the Apache 2.0 license, unless
+  otherwise explicitly indicated.
+
+  Redistributions or derivative works must include a readable copy of the
+  attribution notices from this NOTICE file (see Apache License 2.0 §4(d)).
+
+  If you modify the Basis Universal source code, specifications, or wiki
+  documents and redistribute the files, you must cause any modified files to
+  carry prominent notices stating that you changed the files (see Apache 2.0
+  §4(b)).
+
+  This software, documentation and specifications are provided "as is",
+  without warranty of any kind (see Apache 2.0 §§7-8).
+
+The reference vectors in tests/fixtures/uastc were produced by running the
+upstream tool at the commit above; see tests/fixtures/uastc/README.md.

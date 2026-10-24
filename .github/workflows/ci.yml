@@ -64,6 +64,22 @@ jobs:
       # The GPU side as a browser build links it, on wgpu's WebGPU backend.
       - run: cargo check --target wasm32-unknown-unknown --features gpu
 
+  wasi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+      # The CPU side's tests, the bit-exact reference vectors included, in
+      # wasm. The tests read their fixtures by absolute path, so the
+      # workspace is mapped into the guest at the same path.
+      - run: cargo test --target wasm32-wasip1 --lib --test uastc_reference
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --dir ${{ github.workspace }}::${{ github.workspace }}
+
   docs:
     runs-on: ubuntu-latest
     steps:
