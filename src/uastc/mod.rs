@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) lapoule.dev
 
-//! UASTC LDR 4×4 on the CPU: the reference decode and the transcodes to
-//! ASTC 4×4 and BC7.
+//! UASTC LDR 4×4 on the CPU: the encoder, the reference decode and the
+//! transcodes to ASTC 4×4 and BC7.
 //!
 //! UASTC is a 4×4, 16-byte block format whose every block stands for an
 //! ASTC 4×4 block (plus hints that make other transcodes cheap). It is the
 //! intermediate of the CPU path: a block encoded once transcodes losslessly
-//! to ASTC 4×4, and to BC7 within a small loss. This module reads such
-//! blocks; the encoder lands next.
+//! to ASTC 4×4, and to BC7 within a small loss.
 //!
+//! - [`UastcBlock::encode`] (and [`encode_image`] for a whole image): the
+//!   block upstream's encoder writes for 16 texels at a [`Level`], byte for
+//!   byte, transcoding hints included.
 //! - [`UastcBlock::to_astc_4x4`] (and [`transcode_to_astc_4x4`] for a run of
 //!   blocks): the ASTC 4×4 block that decodes to exactly the texels the
 //!   UASTC block stands for.
@@ -18,12 +20,15 @@
 //! - [`UastcBlock::decode_rgba8`]: those texels, as ASTC's LDR decoder
 //!   computes them, with the linear or the sRGB endpoint expansion.
 //!
-//! The code is a port of parts of an upstream transcoder (Apache-2.0; see
-//! `NOTICE`), checked bit for bit against vectors captured from it
-//! (`tests/uastc_reference.rs`).
+//! The code is a port of parts of an upstream encoder and transcoder
+//! (Apache-2.0; see `NOTICE`), checked bit for bit against vectors captured
+//! from it (`tests/uastc_encode.rs`, `tests/uastc_reference.rs`).
 
 mod astc;
 mod bc7;
+mod cell;
+mod encode;
+mod etc;
 mod tables;
 mod unpack;
 
@@ -78,6 +83,12 @@ impl UastcBlock {
         Self(bytes)
     }
 
+    /// Encodes 16 RGBA8 texels, row-major, as upstream's encoder does at
+    /// `level`, transcoding hints included.
+    pub fn encode(texels: &[[u8; 4]; 16], level: Level) -> Self {
+        Self(encode::encode(texels, level))
+    }
+
     /// The block's bytes.
     pub const fn to_bytes(self) -> [u8; BLOCK_BYTES] {
         self.0
@@ -108,6 +119,74 @@ impl UastcBlock {
     pub fn decode_rgba8(&self, srgb: bool) -> Result<[[u8; 4]; 16], InvalidBlock> {
         Ok(unpack::decode(&unpack::unpack(&self.0, false)?, srgb))
     }
+}
+
+/// How hard the encoder searches, upstream's effort levels 0–2.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Level {
+    /// Level 0: four modes and the solid colour, no BC1 hints.
+    Fastest,
+}
+
+/// Why an image cannot be encoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum EncodeError {
+    /// The input is not `width × height` RGBA8 texels, or the output is not
+    /// one block per 4×4 texels (rounded up).
+    #[error("{width}×{height}: {src} bytes in, {dst} bytes out do not match")]
+    Size {
+        /// Width in texels.
+        width: u32,
+        /// Height in texels.
+        height: u32,
+        /// The input's length in bytes.
+        src: usize,
+        /// The output's length in bytes.
+        dst: usize,
+    },
+}
+
+/// Encodes a `width`×`height` RGBA8 image, rows tightly packed, into one
+/// UASTC block per 4×4 texels, blocks row-major.
+///
+/// A partial block at the right or bottom edge repeats the image's last
+/// column or row, as upstream does.
+pub fn encode_image(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    level: Level,
+    out: &mut [u8],
+) -> Result<(), EncodeError> {
+    let (bw, bh) = (width.div_ceil(4) as usize, height.div_ceil(4) as usize);
+    let size = EncodeError::Size {
+        width,
+        height,
+        src: rgba.len(),
+        dst: out.len(),
+    };
+    if width == 0
+        || height == 0
+        || rgba.len() != width as usize * height as usize * 4
+        || out.len() != bw * bh * BLOCK_BYTES
+    {
+        return Err(size);
+    }
+    let (w, h) = (width as usize, height as usize);
+    let (blocks, _) = out.as_chunks_mut::<BLOCK_BYTES>();
+    for (index, dst) in blocks.iter_mut().enumerate() {
+        let (bx, by) = (index % bw, index / bw);
+        let texels: [[u8; 4]; 16] = std::array::from_fn(|i| {
+            let x = (bx * 4 + i % 4).min(w - 1);
+            let y = (by * 4 + i / 4).min(h - 1);
+            let at = (y * w + x) * 4;
+            [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+        });
+        *dst = encode::encode(&texels, level);
+    }
+    Ok(())
 }
 
 /// Transcodes a run of UASTC blocks into ASTC 4×4 blocks of the same layout.

@@ -17,7 +17,9 @@ Parts of this repository are ported from Basis Universal, by Binomial LLC:
   Copyright (C) 2019-2026 Binomial LLC. All Rights Reserved.
 
 Ported (and modified: translated from C++ to Rust) from
-transcoder/basisu_transcoder.cpp and transcoder/basisu_transcoder_uastc.h:
+transcoder/basisu_transcoder.cpp, transcoder/basisu_transcoder_uastc.h,
+encoder/basisu_uastc_enc.cpp, encoder/basisu_bc7enc.cpp,
+encoder/basisu_etc.h and encoder/basisu_etc.cpp:
 
   src/uastc/tables.rs   the UASTC mode tables, partition patterns, anchors and
                         seeds, ASTC integer-sequence and unquantisation tables
@@ -28,7 +30,16 @@ transcoder/basisu_transcoder.cpp and transcoder/basisu_transcoder_uastc.h:
   src/uastc/bc7.rs      transcode_uastc_to_bc7, determine_shared_pbits,
                         determine_unique_pbits, encode_bc7_block, the BC7
                         partition, anchor and mode tables, the BC7 part of
-                        uastc_init
+                        uastc_init, bc7u::unpack_bc7 (BC7 decode)
+  src/uastc/cell.rs     color_cell_compression (ASTC endpoints),
+                        color_cell_compression_est_astc, the least-squares
+                        and one-colour helpers, astc_init and the parts of
+                        bc7enc_compress_block_init they use
+  src/uastc/etc.rs      the etc_block accessors, pack_etc1_block_solid_color
+                        and its tables, g_etc2_eac_tables, apply_etc1_bias
+  src/uastc/encode.rs   encode_uastc (effort levels 0-2), pack_uastc, the
+                        astc_mode* searches, compute_etc1_hints,
+                        uastc_pack_eac_a8
 
 Each ported item carries an attribution comment and a notice of modification
 at its head. Like the rest of texcomp, those files are offered under MIT OR

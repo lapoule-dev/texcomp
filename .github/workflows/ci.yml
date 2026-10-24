@@ -76,7 +76,7 @@ jobs:
       # The CPU side's tests, the bit-exact reference vectors included, in
       # wasm. The tests read their fixtures by absolute path, so the
       # workspace is mapped into the guest at the same path.
-      - run: cargo test --target wasm32-wasip1 --lib --test uastc_reference
+      - run: cargo test --target wasm32-wasip1 --lib --test uastc_reference --test uastc_encode
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --dir ${{ github.workspace }}::${{ github.workspace }}
 
