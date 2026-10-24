@@ -26,7 +26,6 @@ use super::tables::{levels, UNQUANT, WEIGHTS};
 // Ported from Basis Universal v2.50, `g_bc7_weights1x` … `g_astc_weights5x`
 // (for each weight w: w·w, (1−w)·w, (1−w)², w). Apache-2.0,
 // (C) Binomial LLC. Modified.
-#[allow(dead_code)] // mode 13 (level 2)
 const W1X: [[f32; 4]; 2] = [
     [0.000000, 0.000000, 1.000000, 0.000000],
     [1.000000, 0.000000, 0.000000, 1.000000],
@@ -109,7 +108,6 @@ pub(crate) struct Weights {
 }
 
 /// BC7's 1-, 2- and 3-bit weights and ASTC's 4- and 5-bit ones.
-#[allow(dead_code)] // mode 13 (level 2)
 pub(crate) const BC7_1: Weights = Weights {
     w: WEIGHTS[1],
     x: &W1X,
@@ -781,7 +779,6 @@ pub(crate) fn compress(p: &Params, effort: Effort) -> Fit {
 // Ported from Basis Universal v2.50, `color_cell_compression_est_astc`
 // (unit weights). Apache-2.0, (C) Binomial LLC. Modified.
 /// A quick error estimate for a cell fitted by its bounding box diagonal.
-#[allow(dead_code)]
 pub(crate) fn estimate(weights: &[u8], comps: usize, pixels: &[[u8; 4]], best_so_far: u64) -> u64 {
     let n = weights.len();
     let (mut lo, mut hi) = ([255u8; 4], [0u8; 4]);
@@ -809,19 +806,17 @@ pub(crate) fn estimate(weights: &[u8], comps: usize, pixels: &[[u8; 4]], best_so
         };
     }
     let a: [i32; 4] = std::array::from_fn(|c| hi[c] as i32 - lo[c] as i32);
-    let dots: Vec<i32> = colors[..n]
-        .iter()
-        .map(|w| {
-            let mut d = w[0] as i32 * a[0] + w[1] as i32 * a[1] + w[2] as i32 * a[2];
-            if comps == 4 {
-                d += w[3] as i32 * a[3];
-            }
-            d
-        })
-        .collect();
-    let thresh: Vec<i32> = (0..n - 1)
-        .map(|i| (dots[i] + dots[i + 1] + 1) >> 1)
-        .collect();
+    let mut dots = [0i32; 32];
+    for (d, w) in dots.iter_mut().zip(&colors[..n]) {
+        *d = w[0] as i32 * a[0] + w[1] as i32 * a[1] + w[2] as i32 * a[2];
+        if comps == 4 {
+            *d += w[3] as i32 * a[3];
+        }
+    }
+    let mut thresh = [0i32; 31];
+    for i in 0..n - 1 {
+        thresh[i] = (dots[i] + dots[i + 1] + 1) >> 1;
+    }
     let mut total = 0u64;
     for px in pixels {
         let mut d = a[0] * px[0] as i32 + a[1] * px[1] as i32 + a[2] * px[2] as i32;

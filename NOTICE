@@ -18,6 +18,7 @@ Parts of this repository are ported from Basis Universal, by Binomial LLC:
 
 Ported (and modified: translated from C++ to Rust) from
 transcoder/basisu_transcoder.cpp, transcoder/basisu_transcoder_uastc.h,
+transcoder/basisu_dds_transcoder.inl,
 encoder/basisu_uastc_enc.cpp, encoder/basisu_bc7enc.cpp,
 encoder/basisu_etc.h and encoder/basisu_etc.cpp:
 
@@ -35,10 +36,14 @@ encoder/basisu_etc.h and encoder/basisu_etc.cpp:
                         color_cell_compression_est_astc, the least-squares
                         and one-colour helpers, astc_init and the parts of
                         bc7enc_compress_block_init they use
+  src/uastc/bc1.rs      encode_bc1 (one pass), encode_bc1_solid_block, the
+                        BC1 single-colour tables, transcode_uastc_to_bc1_hint0
+                        and _hint1, bcu::unpack_bc1 (BC1 decode)
   src/uastc/etc.rs      the etc_block accessors, pack_etc1_block_solid_color
                         and its tables, g_etc2_eac_tables, apply_etc1_bias
   src/uastc/encode.rs   encode_uastc (effort levels 0-2), pack_uastc, the
-                        astc_mode* searches, compute_etc1_hints,
+                        astc_mode* searches, estimate_partition2(_list),
+                        compute_bc1_hints, compute_etc1_hints,
                         uastc_pack_eac_a8
 
 Each ported item carries an attribution comment and a notice of modification

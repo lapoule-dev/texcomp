@@ -24,7 +24,7 @@ use super::unpack::Unpacked;
 // Apache-2.0, (C) Binomial LLC. Modified.
 /// For each two-subset UASTC pattern: the BC7 partition, and whether its
 /// subsets are swapped.
-const COMMON2: [(u8, bool); 30] = [
+pub(crate) const COMMON2: [(u8, bool); 30] = [
     (0, false),
     (1, false),
     (2, true),
@@ -122,7 +122,7 @@ fn bc7_3_to_2(p: u32, k: u32) -> u32 {
 // Ported from Basis Universal v2.50, the BC7 tables (`g_bc7_partition2`,
 // `g_bc7_partition3`, the anchor tables and the per-mode tables).
 // Apache-2.0, (C) Binomial LLC. Modified.
-const PARTITION2: [[u8; 16]; 64] = [
+pub(crate) const PARTITION2: [[u8; 16]; 64] = [
     [0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1],
     [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
     [0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1],
