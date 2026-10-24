@@ -1,0 +1,3 @@
+g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+x86_64
+9bebe16726b3a61c8c213eeee3b7cffb462ef34e
