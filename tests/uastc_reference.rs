@@ -10,7 +10,7 @@
 //!
 //! - the main set: nine 256² tiles (five cut from the imagery fixtures the
 //!   way `gpu_quality` cuts them, four synthetic) at effort levels 0, 1, 2;
-//! - the coverage set: eight 64² tiles at levels 3 and 4, made to reach the
+//! - the coverage set: eight 64² tiles at levels 0 to 4, made to reach the
 //!   modes the main set never does (luminance–alpha, alpha, three-subset,
 //!   mode 7's patterns).
 //!
@@ -80,7 +80,7 @@ fn cases() -> Vec<Case> {
             });
         }
     }
-    for level in [3, 4] {
+    for level in [0, 1, 2, 3, 4] {
         for tile in COVERAGE_TILES {
             cases.push(Case {
                 name: format!("{tile} level {level}"),

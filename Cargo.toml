@@ -47,3 +47,9 @@ required-features = ["gpu"]
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
+
+# The encoder tests run tens of thousands of blocks per level; optimise them.
+# Rust never relaxes floating-point semantics (no fast-math, no contraction
+# into FMA) at any opt-level, so the bytes compared are the same.
+[profile.test]
+opt-level = 3

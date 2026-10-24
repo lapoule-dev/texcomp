@@ -14,7 +14,7 @@
 
 use std::sync::OnceLock;
 
-use super::tables::{COMPS, ENDPOINT_RANGES, SOLID, UNQUANT};
+use super::tables::{COMPS, ENDPOINT_RANGES, SOLID, UNQUANT, WEIGHTS};
 use super::unpack::Unpacked;
 
 // Ported from Basis Universal v2.50, the `m_bc7`/`m_invert`,
@@ -280,7 +280,7 @@ const ALPHA_INDEX_BITS: [u8; 8] = [0, 0, 0, 0, 3, 2, 4, 2];
 
 /// A BC7 block before packing (upstream's `bc7_optimization_results`).
 #[derive(Clone, Copy, Debug, Default)]
-struct Bc7 {
+pub(crate) struct Bc7 {
     mode: u32,
     partition: u32,
     selectors: [u8; 16],
@@ -425,7 +425,7 @@ fn pbits(
 // unpacked_uastc_block&, bc7_optimization_results&)`. Apache-2.0,
 // (C) Binomial LLC. Modified.
 /// The unpacked BC7 block for a block read without undoing blue contraction.
-fn transcode(u: &Unpacked) -> Bc7 {
+pub(crate) fn transcode(u: &Unpacked) -> Bc7 {
     let mut d = Bc7::default();
     let mode = u.mode;
     let unq = &UNQUANT[ENDPOINT_RANGES[mode] as usize];
@@ -660,7 +660,7 @@ fn set_bits(out: &mut [u8; 16], pos: &mut u32, mut val: u32, mut count: u32) {
 // Apache-2.0, (C) Binomial LLC. Modified: the index-selection bit is 0.
 /// Packs a BC7 block, flipping each subset whose anchor index has its top
 /// bit set (BC7 stores anchors one bit short).
-fn encode(r: &Bc7) -> [u8; 16] {
+pub(crate) fn encode(r: &Bc7) -> [u8; 16] {
     let mode = r.mode as usize;
     let subsets = NUM_SUBSETS[mode] as usize;
     let partitions = 1u32 << PARTITION_BITS[mode];
@@ -776,6 +776,170 @@ fn encode(r: &Bc7) -> [u8; 16] {
 /// The BC7 block of a block read without undoing blue contraction.
 pub(crate) fn pack(u: &Unpacked) -> [u8; 16] {
     encode(&transcode(u))
+}
+
+// Ported from Basis Universal v2.50, `bc7u::unpack_bc7` and its per-mode
+// helpers (`unpack_bc7_mode0_2`, `_mode1_3_7`, `_mode4_5`, `_mode6`).
+// Apache-2.0, (C) Binomial LLC. Modified: one routine for all modes.
+/// Decodes a BC7 block to its 16 texels, row-major. `None` for the reserved
+/// mode (first byte zero).
+pub(crate) fn decode(block: &[u8; 16]) -> Option<[[u8; 4]; 16]> {
+    let mode = block[0].trailing_zeros() as usize;
+    if mode > 7 {
+        return None;
+    }
+    let mut pos = 0u32;
+    let mut read = |n: u32| -> u32 {
+        let mut v = 0u32;
+        for i in 0..n {
+            let bit = pos + i;
+            v |= (((block[(bit >> 3) as usize] >> (bit & 7)) & 1) as u32) << i;
+        }
+        pos += n;
+        v
+    };
+    read(mode as u32 + 1);
+    let dequant = |v: u32, bits: u32| -> u32 {
+        let v = v << (8 - bits);
+        v | (v >> bits)
+    };
+    // BC7's weights: ASTC's 4-bit table differs from BC7's.
+    const BC7_W4: [u8; 16] = [0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64];
+    let interp = |l: u32, h: u32, w: u32, bits: u32| -> u8 {
+        let wt = if bits == 4 {
+            BC7_W4[w as usize]
+        } else {
+            WEIGHTS[bits as usize][w as usize]
+        } as u32;
+        ((l * (64 - wt) + h * wt + 32) >> 6) as u8
+    };
+    let mut px = [[0u8; 4]; 16];
+    match mode {
+        0 | 1 | 2 | 3 | 7 => {
+            let subsets = NUM_SUBSETS[mode] as usize;
+            let part = read(PARTITION_BITS[mode] as u32) as usize;
+            let comps = if mode == 7 { 4 } else { 3 };
+            let ebits = match mode {
+                0 => 4,
+                1 => 6,
+                2 => 5,
+                3 => 7,
+                _ => 5,
+            };
+            let wbits = COLOR_INDEX_BITS[mode] as u32;
+            let mut e = [[0u32; 4]; 6];
+            for c in 0..comps {
+                for ep in e.iter_mut().take(subsets * 2) {
+                    ep[c] = read(ebits);
+                }
+            }
+            if HAS_P_BITS[mode] {
+                let mut p = [0u32; 6];
+                let count = if SHARED_P_BITS[mode] {
+                    subsets
+                } else {
+                    subsets * 2
+                };
+                for v in p.iter_mut().take(count) {
+                    *v = read(1);
+                }
+                for (i, ep) in e.iter_mut().enumerate().take(subsets * 2) {
+                    let pb = if SHARED_P_BITS[mode] { p[i >> 1] } else { p[i] };
+                    for v in ep.iter_mut().take(comps) {
+                        *v = dequant((*v << 1) | pb, ebits + 1);
+                    }
+                }
+            } else {
+                for ep in e.iter_mut().take(subsets * 2) {
+                    for v in ep.iter_mut().take(comps) {
+                        *v = dequant(*v, ebits);
+                    }
+                }
+            }
+            let pattern: &[u8; 16] = if subsets == 3 {
+                &PARTITION3[part]
+            } else {
+                &PARTITION2[part]
+            };
+            let anchors = if subsets == 3 {
+                [0, ANCHOR3_1[part] as usize, ANCHOR3_2[part] as usize]
+            } else {
+                [0, ANCHOR2[part] as usize, 0]
+            };
+            for (i, t) in px.iter_mut().enumerate() {
+                let w = read(wbits - u32::from(anchors.contains(&i)));
+                let s = pattern[i] as usize;
+                for c in 0..comps {
+                    t[c] = interp(e[s * 2][c], e[s * 2 + 1][c], w, wbits);
+                }
+                if comps == 3 {
+                    t[3] = 255;
+                }
+            }
+        }
+        4 | 5 => {
+            let rot = read(2);
+            let index_mode = if mode == 4 { read(1) } else { 0 };
+            let (ebits, abits) = if mode == 4 { (5, 6) } else { (7, 8) };
+            let mut e = [[0u32; 4]; 2];
+            for c in 0..4 {
+                for ep in e.iter_mut() {
+                    ep[c] = read(if c == 3 { abits } else { ebits });
+                }
+            }
+            for ep in e.iter_mut() {
+                for (c, v) in ep.iter_mut().enumerate() {
+                    *v = dequant(*v, if c == 3 { abits } else { ebits });
+                }
+            }
+            let (cw, aw) = (2u32, if mode == 4 { 3u32 } else { 2 });
+            let wb = if index_mode != 0 { [aw, cw] } else { [cw, aw] };
+            let mut first = [0u32; 16];
+            let mut second = [0u32; 16];
+            let im = index_mode as usize;
+            for (i, w) in first.iter_mut().enumerate() {
+                *w = read(wb[im] - u32::from(i == 0));
+            }
+            for (i, w) in second.iter_mut().enumerate() {
+                *w = read(wb[1 - im] - u32::from(i == 0));
+            }
+            let (cwts, awts) = if index_mode != 0 {
+                (second, first)
+            } else {
+                (first, second)
+            };
+            for (i, t) in px.iter_mut().enumerate() {
+                for c in 0..3 {
+                    t[c] = interp(e[0][c], e[1][c], cwts[i], wb[0]);
+                }
+                t[3] = interp(e[0][3], e[1][3], awts[i], wb[1]);
+                if rot >= 1 {
+                    t.swap(3, rot as usize - 1);
+                }
+            }
+        }
+        _ => {
+            let mut e = [[0u32; 4]; 2];
+            for c in 0..4 {
+                for ep in e.iter_mut() {
+                    ep[c] = read(7);
+                }
+            }
+            let (p0, p1) = (read(1), read(1));
+            for (ep, p) in e.iter_mut().zip([p0, p1]) {
+                for v in ep.iter_mut() {
+                    *v = (*v << 1) | p;
+                }
+            }
+            for (i, t) in px.iter_mut().enumerate() {
+                let w = read(4 - u32::from(i == 0));
+                for c in 0..4 {
+                    t[c] = interp(e[0][c], e[1][c], w, 4);
+                }
+            }
+        }
+    }
+    Some(px)
 }
 
 #[cfg(test)]

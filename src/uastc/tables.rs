@@ -24,6 +24,43 @@ pub(crate) const SOLID: usize = 8;
 pub(crate) const MODE_CODE_BITS: [u8; MODES + 1] =
     [4, 6, 5, 5, 5, 5, 5, 5, 5, 5, 3, 2, 3, 5, 5, 7, 6, 6, 4, 7];
 
+// Ported from Basis Universal v2.50, `g_uastc_mode_huff_codes` (codes).
+// Apache-2.0, (C) Binomial LLC. Modified.
+/// Each mode's prefix code, written low bit first.
+pub(crate) const MODE_CODES: [u8; MODES] = [
+    0x1, 0x35, 0x1D, 0x3, 0x13, 0xB, 0x1B, 0x7, 0x17, 0xF, 0x2, 0x0, 0x6, 0x1F, 0xD, 0x5, 0x15,
+    0x25, 0x9,
+];
+
+// Ported from Basis Universal v2.50, `g_uastc_mode_has_etc1_bias`,
+// `_has_bc1_hint0`, `_has_bc1_hint1`, `_has_alpha` and `_is_la`.
+// Apache-2.0, (C) Binomial LLC. Modified.
+/// The mode stores an ETC1 bias hint.
+pub(crate) const HAS_ETC1_BIAS: [bool; MODES] = [
+    true, true, true, true, true, true, true, true, false, true, false, false, false, true, true,
+    true, true, true, true,
+];
+/// The mode stores BC1 hint 0.
+pub(crate) const HAS_BC1_HINT0: [bool; MODES] = [
+    true, true, true, true, true, true, true, true, false, true, true, true, true, true, true,
+    true, true, true, true,
+];
+/// The mode stores BC1 hint 1.
+pub(crate) const HAS_BC1_HINT1: [bool; MODES] = [
+    true, true, true, true, true, true, true, true, false, true, false, false, false, true, true,
+    true, true, true, true,
+];
+/// The mode carries alpha.
+pub(crate) const HAS_ALPHA: [bool; MODES] = [
+    false, false, false, false, false, false, false, false, true, true, true, true, true, true,
+    true, true, true, true, false,
+];
+/// The mode is luminance–alpha.
+pub(crate) const IS_LA: [bool; MODES] = [
+    false, false, false, false, false, false, false, false, false, false, false, false, false,
+    false, false, true, true, true, false,
+];
+
 /// The mode the block's low seven bits decode to; 19 is reserved.
 pub(crate) const MODE_FROM_CODE: [u8; 128] = [
     11, 0, 10, 3, 11, 15, 12, 7, 11, 18, 10, 5, 11, 14, 12, 9, 11, 0, 10, 4, 11, 16, 12, 8, 11, 18,
