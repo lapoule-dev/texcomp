@@ -1,0 +1,3 @@
+basisu -uastc -uastc_level 1 -mipmap -ktx2 -ktx2_no_zstandard -no_multithreading -no_stats -output_file /out/upstream/alps-0.ktx2 -file /in/tiles/alps-0.png
+basisu -uastc -uastc_level 1 -mipmap -ktx2 -ktx2_no_zstandard -no_multithreading -no_stats -output_file /out/upstream/alpha-imagery.ktx2 -file /in/coverage-tiles/alpha-imagery.png
+basisu -uastc -uastc_level 1 -mipmap -ktx2 -ktx2_no_zstandard -no_multithreading -no_stats -output_file /out/upstream/alps-0-100x60.ktx2 -file /in/inputs/alps-0-100x60.png

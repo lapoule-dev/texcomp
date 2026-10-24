@@ -1,0 +1,6 @@
+Basis Universal LDR/HDR GPU Texture Supercompression System v2.50.0
+Copyright (C) 2019-2026 Binomial LLC, All rights reserved
+No SSE, Multithreading: 1, Zstandard support: 1, OpenCL: 0
+ktx version: v4.4.2
+x86_64
+9bebe16726b3a61c8c213eeee3b7cffb462ef34e

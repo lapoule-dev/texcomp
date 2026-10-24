@@ -234,7 +234,7 @@ impl Texture {
         level_bytes(self.width, self.height, level)
     }
 
-    /// Checks what [`write`] checks: a size, between 1 and the full chain's
+    /// Checks what [`write()`] checks: a size, between 1 and the full chain's
     /// number of levels, each the length of its blocks.
     pub fn validate(&self) -> Result<(), Ktx2Error> {
         if self.width == 0 || self.height == 0 {
@@ -563,7 +563,7 @@ pub fn read(bytes: &[u8]) -> Result<Texture, Ktx2Error> {
         if level_bytes(width, height, p) != Some(length) {
             return bad("byteLength is not the level's size in whole 4x4 blocks");
         }
-        if offset % LEVEL_ALIGN != 0 {
+        if !offset.is_multiple_of(LEVEL_ALIGN) {
             return bad("byteOffset is not aligned to 16 bytes (mipPadding)");
         }
         if offset < metadata_end {
@@ -619,7 +619,10 @@ fn read_dfd(
         return Err(Ktx2Error::Dfd("the basic block's versionNumber is not 2"));
     }
     let block_size = (w1 >> 16) as usize;
-    if block_size < BASIC_BLOCK_BYTES || (block_size - 24) % 16 != 0 || block_size > b.len() {
+    if block_size < BASIC_BLOCK_BYTES
+        || !(block_size - 24).is_multiple_of(16)
+        || block_size > b.len()
+    {
         return Err(Ktx2Error::Dfd(
             "descriptorBlockSize is not 24 + 16 per sample within the DFD",
         ));

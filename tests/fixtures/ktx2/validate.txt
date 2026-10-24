@@ -1,0 +1,946 @@
+== ktx validate upstream/alps-0.ktx2 (control)
+Validation successful
+
+warning-7010: Custom key in Key/Value Data.
+    Custom key "" found in Key/Value Data.
+== ktx validate upstream/alpha-imagery.ktx2 (control)
+Validation successful
+
+warning-7010: Custom key in Key/Value Data.
+    Custom key "" found in Key/Value Data.
+== ktx validate upstream/alps-0-100x60.ktx2 (control)
+Validation successful
+
+warning-7010: Custom key in Key/Value Data.
+    Custom key "" found in Key/Value Data.
+== ktx validate ours/alpha-imagery-astc-srgb.ktx2
+ok
+== ktx info ours/alpha-imagery-astc-srgb.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_ASTC_4x4_SRGB_BLOCK
+typeSize: 1
+pixelWidth: 64
+pixelHeight: 64
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0x6d0
+Level0.byteLength: 4096
+Level0.uncompressedByteLength: 4096
+Level1.byteOffset: 0x2d0
+Level1.byteLength: 1024
+Level1.uncompressedByteLength: 1024
+Level2.byteOffset: 0x1d0
+Level2.byteLength: 256
+Level2.uncompressedByteLength: 256
+Level3.byteOffset: 0x190
+Level3.byteLength: 64
+Level3.uncompressedByteLength: 64
+Level4.byteOffset: 0x180
+Level4.byteLength: 16
+Level4.uncompressedByteLength: 16
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_ASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_ASTC_DATA)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alpha-imagery-astc.ktx2
+ok
+== ktx info ours/alpha-imagery-astc.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_ASTC_4x4_UNORM_BLOCK
+typeSize: 1
+pixelWidth: 64
+pixelHeight: 64
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0x6d0
+Level0.byteLength: 4096
+Level0.uncompressedByteLength: 4096
+Level1.byteOffset: 0x2d0
+Level1.byteLength: 1024
+Level1.uncompressedByteLength: 1024
+Level2.byteOffset: 0x1d0
+Level2.byteLength: 256
+Level2.uncompressedByteLength: 256
+Level3.byteOffset: 0x190
+Level3.byteLength: 64
+Level3.uncompressedByteLength: 64
+Level4.byteOffset: 0x180
+Level4.byteLength: 16
+Level4.uncompressedByteLength: 16
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_LINEAR
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_ASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_ASTC_DATA)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alpha-imagery-bc7-srgb.ktx2
+ok
+== ktx info ours/alpha-imagery-bc7-srgb.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_BC7_SRGB_BLOCK
+typeSize: 1
+pixelWidth: 64
+pixelHeight: 64
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0x6d0
+Level0.byteLength: 4096
+Level0.uncompressedByteLength: 4096
+Level1.byteOffset: 0x2d0
+Level1.byteLength: 1024
+Level1.uncompressedByteLength: 1024
+Level2.byteOffset: 0x1d0
+Level2.byteLength: 256
+Level2.uncompressedByteLength: 256
+Level3.byteOffset: 0x190
+Level3.byteLength: 64
+Level3.uncompressedByteLength: 64
+Level4.byteOffset: 0x180
+Level4.byteLength: 16
+Level4.uncompressedByteLength: 16
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_BC7
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_BC7_COLOR)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alpha-imagery-bc7.ktx2
+ok
+== ktx info ours/alpha-imagery-bc7.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_BC7_UNORM_BLOCK
+typeSize: 1
+pixelWidth: 64
+pixelHeight: 64
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0x6d0
+Level0.byteLength: 4096
+Level0.uncompressedByteLength: 4096
+Level1.byteOffset: 0x2d0
+Level1.byteLength: 1024
+Level1.uncompressedByteLength: 1024
+Level2.byteOffset: 0x1d0
+Level2.byteLength: 256
+Level2.uncompressedByteLength: 256
+Level3.byteOffset: 0x190
+Level3.byteLength: 64
+Level3.uncompressedByteLength: 64
+Level4.byteOffset: 0x180
+Level4.byteLength: 16
+Level4.uncompressedByteLength: 16
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_LINEAR
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_BC7
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_BC7_COLOR)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alpha-imagery-uastc.ktx2
+ok
+== ktx info ours/alpha-imagery-uastc.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_UNDEFINED
+typeSize: 1
+pixelWidth: 64
+pixelHeight: 64
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0x6d0
+Level0.byteLength: 4096
+Level0.uncompressedByteLength: 4096
+Level1.byteOffset: 0x2d0
+Level1.byteLength: 1024
+Level1.uncompressedByteLength: 1024
+Level2.byteOffset: 0x1d0
+Level2.byteLength: 256
+Level2.uncompressedByteLength: 256
+Level3.byteOffset: 0x190
+Level3.byteLength: 64
+Level3.uncompressedByteLength: 64
+Level4.byteOffset: 0x180
+Level4.byteLength: 16
+Level4.uncompressedByteLength: 16
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_UASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x3 (KHR_DF_CHANNEL_UASTC_RGBA)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== basisu -info and -unpack ours/alpha-imagery-uastc.ktx2, levels compared with upstream's
+Basis Universal LDR/HDR GPU Texture Supercompression System v2.50.0
+Copyright (C) 2019-2026 Binomial LLC, All rights reserved
+No SSE, Multithreading: 1, Zstandard support: 1, OpenCL: 0
+
+Input file "/in/ours/alpha-imagery-uastc.ktx2", Format: KTX2
+Resolution: 64x64
+Block size: 4x4
+Mipmap Levels: 7
+Texture Array Size (layers): 0
+Total Faces: 1 (2D)
+Is Texture Video: 0
+Deblocking filter ID: 0
+KTX2 Supercompression Scheme: NONE
+Library Supercompression Format: UASTC_LDR_4x4
+Has Alpha: 1
+
+KTX2 header vk_format: 0x0 (decimal 0)
+
+Data Format Descriptor (DFD):
+DFD length in bytes: 44
+DFD color model: 166
+DFD color primaries: 1 (BT709)
+DFD transfer func: 2 (SRGB)
+DFD flags: 0
+DFD samples: 1
+DFD chan0: RGBA
+DFD hex values:
+0x2C,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0x2,0x0,0x28,0x0,
+0xA6,0x1,0x2,0x0,
+0x3,0x3,0x0,0x0,
+0x10,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0x0,0x0,0x7F,0x3,
+0x0,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0xFF,0xFF,0xFF,0xFF
+
+Note: ETC1S/UASTC LDR 4x4 will always be decoded by this tool using the ASTC linear decode profile, regardless of the KTX2/.basis DFD transfer function field.
+Total key values: 2
+0. Key: "KTXorientation", Value length in bytes: 4 Value String: "rd"
+1. Key: "KTXwriter", Value length in bytes: 15 Value String: "texcomp 0.1.0"
+Levels:
+0. Offset: 1744, Length: 4096, Uncompressed Length: 4096
+1. Offset: 720, Length: 1024, Uncompressed Length: 1024
+2. Offset: 464, Length: 256, Uncompressed Length: 256
+3. Offset: 400, Length: 64, Uncompressed Length: 64
+4. Offset: 384, Length: 16, Uncompressed Length: 16
+5. Offset: 368, Length: 16, Uncompressed Length: 16
+6. Offset: 352, Length: 16, Uncompressed Length: 16
+Image level info:
+--- Level Index: 0, Layer Index: 0, Face Index: 0
+Orig width/height: 64x64
+Width/height: 64x64
+Block width/height: 4x4
+Num blocks: 16x16, Total blocks: 256
+Alpha flag: true, I-frame flag: false
+--- Level Index: 1, Layer Index: 0, Face Index: 0
+Orig width/height: 32x32
+Width/height: 32x32
+Block width/height: 4x4
+Num blocks: 8x8, Total blocks: 64
+Alpha flag: true, I-frame flag: false
+--- Level Index: 2, Layer Index: 0, Face Index: 0
+Orig width/height: 16x16
+Width/height: 16x16
+Block width/height: 4x4
+Num blocks: 4x4, Total blocks: 16
+Alpha flag: true, I-frame flag: false
+--- Level Index: 3, Layer Index: 0, Face Index: 0
+Orig width/height: 8x8
+Width/height: 8x8
+Block width/height: 4x4
+Num blocks: 2x2, Total blocks: 4
+Alpha flag: true, I-frame flag: false
+--- Level Index: 4, Layer Index: 0, Face Index: 0
+Orig width/height: 4x4
+Width/height: 4x4
+Block width/height: 4x4
+Num blocks: 1x1, Total blocks: 1
+Alpha flag: true, I-frame flag: false
+--- Level Index: 5, Layer Index: 0, Face Index: 0
+Orig width/height: 2x2
+Width/height: 4x4
+Block width/height: 4x4
+Num blocks: 1x1, Total blocks: 1
+Alpha flag: true, I-frame flag: false
+--- Level Index: 6, Layer Index: 0, Face Index: 0
+Orig width/height: 1x1
+Width/height: 4x4
+Block width/height: 4x4
+Num blocks: 1x1, Total blocks: 1
+Alpha flag: true, I-frame flag: false
+
+Success
+/work/run/ours.astc: 7 levels, 5488 bytes
+/work/run/ours.bc7: 7 levels, 5488 bytes
+ok
+== ktx validate ours/alps-0-100x60-astc-srgb.ktx2
+ok
+== ktx info ours/alps-0-100x60-astc-srgb.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_ASTC_4x4_SRGB_BLOCK
+typeSize: 1
+pixelWidth: 100
+pixelHeight: 60
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0xa40
+Level0.byteLength: 6000
+Level0.uncompressedByteLength: 6000
+Level1.byteOffset: 0x3c0
+Level1.byteLength: 1664
+Level1.uncompressedByteLength: 1664
+Level2.byteOffset: 0x200
+Level2.byteLength: 448
+Level2.uncompressedByteLength: 448
+Level3.byteOffset: 0x1a0
+Level3.byteLength: 96
+Level3.uncompressedByteLength: 96
+Level4.byteOffset: 0x180
+Level4.byteLength: 32
+Level4.uncompressedByteLength: 32
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_ASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_ASTC_DATA)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alps-0-100x60-astc.ktx2
+ok
+== ktx info ours/alps-0-100x60-astc.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_ASTC_4x4_UNORM_BLOCK
+typeSize: 1
+pixelWidth: 100
+pixelHeight: 60
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0xa40
+Level0.byteLength: 6000
+Level0.uncompressedByteLength: 6000
+Level1.byteOffset: 0x3c0
+Level1.byteLength: 1664
+Level1.uncompressedByteLength: 1664
+Level2.byteOffset: 0x200
+Level2.byteLength: 448
+Level2.uncompressedByteLength: 448
+Level3.byteOffset: 0x1a0
+Level3.byteLength: 96
+Level3.uncompressedByteLength: 96
+Level4.byteOffset: 0x180
+Level4.byteLength: 32
+Level4.uncompressedByteLength: 32
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_LINEAR
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_ASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_ASTC_DATA)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alps-0-100x60-bc7-srgb.ktx2
+ok
+== ktx info ours/alps-0-100x60-bc7-srgb.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_BC7_SRGB_BLOCK
+typeSize: 1
+pixelWidth: 100
+pixelHeight: 60
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0xa40
+Level0.byteLength: 6000
+Level0.uncompressedByteLength: 6000
+Level1.byteOffset: 0x3c0
+Level1.byteLength: 1664
+Level1.uncompressedByteLength: 1664
+Level2.byteOffset: 0x200
+Level2.byteLength: 448
+Level2.uncompressedByteLength: 448
+Level3.byteOffset: 0x1a0
+Level3.byteLength: 96
+Level3.uncompressedByteLength: 96
+Level4.byteOffset: 0x180
+Level4.byteLength: 32
+Level4.uncompressedByteLength: 32
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_BC7
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_BC7_COLOR)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alps-0-100x60-bc7.ktx2
+ok
+== ktx info ours/alps-0-100x60-bc7.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_BC7_UNORM_BLOCK
+typeSize: 1
+pixelWidth: 100
+pixelHeight: 60
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0xa40
+Level0.byteLength: 6000
+Level0.uncompressedByteLength: 6000
+Level1.byteOffset: 0x3c0
+Level1.byteLength: 1664
+Level1.uncompressedByteLength: 1664
+Level2.byteOffset: 0x200
+Level2.byteLength: 448
+Level2.uncompressedByteLength: 448
+Level3.byteOffset: 0x1a0
+Level3.byteLength: 96
+Level3.uncompressedByteLength: 96
+Level4.byteOffset: 0x180
+Level4.byteLength: 32
+Level4.uncompressedByteLength: 32
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_LINEAR
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_BC7
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_BC7_COLOR)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== ktx validate ours/alps-0-100x60-uastc.ktx2
+ok
+== ktx info ours/alps-0-100x60-uastc.ktx2
+Validation successful
+
+Header
+
+identifier: «KTX 20»\r\n\x1A\n
+vkFormat: VK_FORMAT_UNDEFINED
+typeSize: 1
+pixelWidth: 100
+pixelHeight: 60
+pixelDepth: 0
+layerCount: 0
+faceCount: 1
+levelCount: 7
+supercompressionScheme: KTX_SS_NONE
+dataFormatDescriptor.byteOffset: 0xf8
+dataFormatDescriptor.byteLength: 44
+keyValueData.byteOffset: 0x124
+keyValueData.byteLength: 52
+supercompressionGlobalData.byteOffset: 0
+supercompressionGlobalData.byteLength: 0
+
+Level Index
+
+Level0.byteOffset: 0xa40
+Level0.byteLength: 6000
+Level0.uncompressedByteLength: 6000
+Level1.byteOffset: 0x3c0
+Level1.byteLength: 1664
+Level1.uncompressedByteLength: 1664
+Level2.byteOffset: 0x200
+Level2.byteLength: 448
+Level2.uncompressedByteLength: 448
+Level3.byteOffset: 0x1a0
+Level3.byteLength: 96
+Level3.uncompressedByteLength: 96
+Level4.byteOffset: 0x180
+Level4.byteLength: 32
+Level4.uncompressedByteLength: 32
+Level5.byteOffset: 0x170
+Level5.byteLength: 16
+Level5.uncompressedByteLength: 16
+Level6.byteOffset: 0x160
+Level6.byteLength: 16
+Level6.uncompressedByteLength: 16
+
+Data Format Descriptor
+
+DFD total bytes: 44
+Vendor ID: KHR_DF_VENDORID_KHRONOS
+Descriptor type: KHR_DF_KHR_DESCRIPTORTYPE_BASICFORMAT
+Version: KHR_DF_VERSIONNUMBER_1_3
+Descriptor block size: 40
+Flags: 0x0 (KHR_DF_FLAG_ALPHA_STRAIGHT)
+Transfer: KHR_DF_TRANSFER_SRGB
+Primaries: KHR_DF_PRIMARIES_BT709
+Model: KHR_DF_MODEL_UASTC
+Dimensions: 4, 4, 1, 1
+Plane bytes: 16, 0, 0, 0, 0, 0, 0, 0
+Sample 0:
+    Qualifiers: 0x0 ()
+    Channel Type: 0x0 (KHR_DF_CHANNEL_UASTC_RGB)
+    Length: 128 bits Offset: 0
+    Position: 0, 0, 0, 0
+    Lower: 0x00000000
+    Upper: 0xffffffff
+
+Key/Value Data
+
+KTXorientation: rd
+KTXwriter: texcomp 0.1.0
+== basisu -info and -unpack ours/alps-0-100x60-uastc.ktx2, levels compared with upstream's
+Basis Universal LDR/HDR GPU Texture Supercompression System v2.50.0
+Copyright (C) 2019-2026 Binomial LLC, All rights reserved
+No SSE, Multithreading: 1, Zstandard support: 1, OpenCL: 0
+
+Input file "/in/ours/alps-0-100x60-uastc.ktx2", Format: KTX2
+Resolution: 100x60
+Block size: 4x4
+Mipmap Levels: 7
+Texture Array Size (layers): 0
+Total Faces: 1 (2D)
+Is Texture Video: 0
+Deblocking filter ID: 0
+KTX2 Supercompression Scheme: NONE
+Library Supercompression Format: UASTC_LDR_4x4
+Has Alpha: 0
+
+KTX2 header vk_format: 0x0 (decimal 0)
+
+Data Format Descriptor (DFD):
+DFD length in bytes: 44
+DFD color model: 166
+DFD color primaries: 1 (BT709)
+DFD transfer func: 2 (SRGB)
+DFD flags: 0
+DFD samples: 1
+DFD chan0: RGB
+DFD hex values:
+0x2C,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0x2,0x0,0x28,0x0,
+0xA6,0x1,0x2,0x0,
+0x3,0x3,0x0,0x0,
+0x10,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0x0,0x0,0x7F,0x0,
+0x0,0x0,0x0,0x0,
+0x0,0x0,0x0,0x0,
+0xFF,0xFF,0xFF,0xFF
+
+Note: ETC1S/UASTC LDR 4x4 will always be decoded by this tool using the ASTC linear decode profile, regardless of the KTX2/.basis DFD transfer function field.
+Total key values: 2
+0. Key: "KTXorientation", Value length in bytes: 4 Value String: "rd"
+1. Key: "KTXwriter", Value length in bytes: 15 Value String: "texcomp 0.1.0"
+Levels:
+0. Offset: 2624, Length: 6000, Uncompressed Length: 6000
+1. Offset: 960, Length: 1664, Uncompressed Length: 1664
+2. Offset: 512, Length: 448, Uncompressed Length: 448
+3. Offset: 416, Length: 96, Uncompressed Length: 96
+4. Offset: 384, Length: 32, Uncompressed Length: 32
+5. Offset: 368, Length: 16, Uncompressed Length: 16
+6. Offset: 352, Length: 16, Uncompressed Length: 16
+Image level info:
+--- Level Index: 0, Layer Index: 0, Face Index: 0
+Orig width/height: 100x60
+Width/height: 100x60
+Block width/height: 4x4
+Num blocks: 25x15, Total blocks: 375
+Alpha flag: false, I-frame flag: false
+--- Level Index: 1, Layer Index: 0, Face Index: 0
+Orig width/height: 50x30
+Width/height: 52x32
+Block width/height: 4x4
+Num blocks: 13x8, Total blocks: 104
+Alpha flag: false, I-frame flag: false
+--- Level Index: 2, Layer Index: 0, Face Index: 0
+Orig width/height: 25x15
+Width/height: 28x16
+Block width/height: 4x4
+Num blocks: 7x4, Total blocks: 28
+Alpha flag: false, I-frame flag: false
+--- Level Index: 3, Layer Index: 0, Face Index: 0
+Orig width/height: 12x7
+Width/height: 12x8
+Block width/height: 4x4
+Num blocks: 3x2, Total blocks: 6
+Alpha flag: false, I-frame flag: false
+--- Level Index: 4, Layer Index: 0, Face Index: 0
+Orig width/height: 6x3
+Width/height: 8x4
+Block width/height: 4x4
+Num blocks: 2x1, Total blocks: 2
+Alpha flag: false, I-frame flag: false
+--- Level Index: 5, Layer Index: 0, Face Index: 0
+Orig width/height: 3x1
+Width/height: 4x4
+Block width/height: 4x4
+Num blocks: 1x1, Total blocks: 1
+Alpha flag: false, I-frame flag: false
+--- Level Index: 6, Layer Index: 0, Face Index: 0
+Orig width/height: 1x1
+Width/height: 4x4
+Block width/height: 4x4
+Num blocks: 1x1, Total blocks: 1
+Alpha flag: false, I-frame flag: false
+
+Success
+/work/run/ours.astc: 7 levels, 8272 bytes
+/work/run/ours.bc7: 7 levels, 8272 bytes
+ok
+ALL CHECKS PASSED

@@ -74,8 +74,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: bytecodealliance/actions/wasmtime/setup@v1
       # The CPU side's tests, the bit-exact reference vectors and the KTX 2.0
-      # container included, in wasm. The tests read their fixtures by absolute path, so the
-      # workspace is mapped into the guest at the same path.
+      # container included, in wasm. The tests read their fixtures by
+      # absolute path, so the workspace is mapped into the guest at the same
+      # path.
       - run: cargo test --target wasm32-wasip1 --lib --test uastc_reference --test uastc_encode --test ktx2
         env:
           CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --dir ${{ github.workspace }}::${{ github.workspace }}

@@ -8,7 +8,8 @@ GPU block-compressed textures, encoded on the fly from RGBA8, in pure Rust.
 Imagery and other textures usually arrive as JPEG or PNG and are decoded to
 RGBA8. texcomp encodes them, just before upload, to a block format the GPU
 samples natively: 8 bits per texel instead of 32, so a quarter of the bytes
-stay resident. Nothing here reads or writes a compressed file.
+stay resident. Compressed textures can also be stored and served as files:
+`texcomp::ktx2` reads and writes them in the Khronos KTX 2.0 container.
 
 It is built for [tuile](https://github.com/lapoule-dev/tuile)'s viewer, and
 does not depend on it.
@@ -160,6 +161,53 @@ texel like a fresh `encode`, and that the timestamps are written in order. On
 Apple M2 its BC7 pass (four 256² tiles with mips, first pass, no warm-up)
 measured 5 to 7 ms per tile across runs.
 
+## KTX 2.0 files
+
+`texcomp::ktx2` (default build, wasm-clean) reads and writes a KTX 2.0 file
+holding one 2D texture with its mips, written from the Khronos KTX 2.0 and
+Data Format 1.4 specifications:
+
+- **UASTC** (`vkFormat` UNDEFINED with a UASTC data format descriptor),
+  **BC7** and **ASTC 4×4**, linear or sRGB (the `*_SRGB_BLOCK` `vkFormat`
+  and the sRGB transfer function);
+- no supercompression: a file with Zstandard or BasisLZ is refused with
+  `Ktx2Error::Supercompression`, as are arrays, cubemaps, 3D textures and
+  other formats;
+- the writer records `KTXorientation` = `rd` and `KTXwriter`, levels
+  smallest first, each aligned to 16 bytes. The reader refuses any other
+  orientation, since read as stored the image would come out flipped.
+
+```rust
+use texcomp::ktx2::{self, Format, Texture, UastcChannels};
+
+/// A UASTC tile served as a file, then read back and made BC7.
+fn round_trip(levels: Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    let tile = Texture {
+        format: Format::Uastc(UastcChannels::Rgb),
+        srgb: true,
+        width: 256,
+        height: 256,
+        levels, // level 0 first, each its 16-byte blocks row by row
+    };
+    let file = ktx2::write(&tile)?; // served as ktx2::MEDIA_TYPE, image/ktx2
+    let back = ktx2::read(&file)?;
+    let mut bc7 = Vec::new();
+    for level in &back.levels {
+        let mut out = vec![0; level.len()];
+        texcomp::uastc::transcode_to_bc7(level, &mut out)?;
+        bc7.push(out);
+    }
+    Ok(bc7)
+}
+```
+
+The reader validates every size and offset against the file and never
+panics (`tests/ktx2.rs` truncates and corrupts files by the thousand). It
+reads upstream Basis Universal's KTX 2.0 files, whose every level then
+transcodes bit-exact to upstream's; the files the writer makes pass the
+Khronos `ktx validate` with no warning and upstream's `-unpack`
+(`tests/fixtures/ktx2`).
+
 ## Features
 
 | Feature | Default | What it adds |
@@ -177,7 +225,9 @@ Without `gpu` the crate depends on nothing GPU-related.
 - **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
   pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
   the UASTC encoder at effort levels 0–2, UASTC decode and UASTC to ASTC 4×4
-  and BC7, all byte-identical to upstream.
+  and BC7, all byte-identical to upstream; KTX 2.0 read and write (UASTC,
+  BC7, ASTC 4×4, no supercompression).
+- **Next**: Zstandard supercompression in KTX 2.0.
 
 ## Licence
 
