@@ -1,6 +1,6 @@
 [package]
 name = "texcomp"
-version = "0.1.0"
+version = "0.2.0"
 description = "GPU block-compressed textures (BC7, ASTC), encoded on the fly from RGBA8 by WGSL compute kernels or on the CPU"
 edition = "2021"
 rust-version = "1.97"
