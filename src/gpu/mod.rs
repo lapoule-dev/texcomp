@@ -20,8 +20,6 @@
 
 use std::borrow::Cow;
 
-use wgpu::util::DeviceExt;
-
 use crate::BlockFormat;
 
 /// The formats the kernels write.
@@ -248,6 +246,9 @@ impl GpuEncoder {
     /// The result has one entry per tile, in order. A tile that cannot be
     /// encoded gets its [`EncodeError`] and costs nothing: the caller uploads
     /// it uncompressed.
+    ///
+    /// Every call creates its buffers; [`GpuEncoder::encode_with`] keeps them
+    /// in an [`EncoderScratch`] instead.
     pub fn encode(
         &self,
         device: &wgpu::Device,
@@ -256,10 +257,40 @@ impl GpuEncoder {
         tiles: &[&[Level<'_>]],
         srgb: bool,
     ) -> Vec<Result<wgpu::Texture, EncodeError>> {
+        let mut scratch = EncoderScratch::new();
+        self.encode_with(&mut scratch, device, queue, cmd, tiles, srgb, None)
+    }
+
+    /// [`GpuEncoder::encode`], for a caller that spreads encodes over frames:
+    /// the buffers live in `scratch` from one call to the next, and the
+    /// compute pass writes `timestamp_writes` when given.
+    ///
+    /// `scratch` grows when a call needs more than it holds and never
+    /// shrinks; [`EncoderScratch::with_capacity`] sizes it up front. Its
+    /// buffers are rewritten by every call, through `queue.write_buffer`, which
+    /// lands at the next submission: **submit `cmd` before the next call with
+    /// the same scratch**, or that call's texels replace these before they are
+    /// encoded. One call per frame, submitted with the frame, is the intended
+    /// use.
+    ///
+    /// `timestamp_writes` needs [`wgpu::Features::TIMESTAMP_QUERY`] on the
+    /// device. No pass is recorded when no tile is valid, and the query set is
+    /// then left as it was.
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_with(
+        &self,
+        scratch: &mut EncoderScratch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cmd: &mut wgpu::CommandEncoder,
+        tiles: &[&[Level<'_>]],
+        srgb: bool,
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
+    ) -> Vec<Result<wgpu::Texture, EncodeError>> {
         let mut results: Vec<Result<wgpu::Texture, EncodeError>> = Vec::with_capacity(tiles.len());
         // Tiles go into batches whose input and output each fit one storage
         // binding; every batch is dispatched in the same compute pass.
-        let mut batches: Vec<Batch> = Vec::new();
+        let mut batches: Vec<Batch<'_>> = Vec::new();
         let mut current = Batch::default();
         for (t, levels) in tiles.iter().enumerate() {
             if let Err(e) = validate(levels) {
@@ -306,20 +337,28 @@ impl GpuEncoder {
             return results;
         }
 
-        let prepared: Vec<_> = batches
+        let needs: Vec<Need> = batches
             .iter()
-            .map(|b| self.prepare(device, queue, b))
+            .map(|b| Need {
+                src: b.src_bytes,
+                dst: b.dst_bytes,
+                jobs: b.placed.len() as u64 * self.uniform_align,
+            })
             .collect();
+        scratch.fit(device, self, &needs);
+        for (batch, slot) in batches.iter().zip(&scratch.slots) {
+            self.upload(queue, batch, slot);
+        }
         {
             let mut pass = cmd.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("tuile block encode"),
-                timestamp_writes: None,
+                timestamp_writes,
             });
             pass.set_pipeline(&self.pipeline);
-            for (batch, (bind_group, _)) in batches.iter().zip(&prepared) {
+            for (batch, slot) in batches.iter().zip(&scratch.slots) {
                 for (j, placed) in batch.placed.iter().enumerate() {
                     let offset = (j as u64 * self.uniform_align) as u32;
-                    pass.set_bind_group(0, bind_group, &[offset]);
+                    pass.set_bind_group(0, &slot.bind_group, &[offset]);
                     pass.dispatch_workgroups(
                         placed.job.blocks_x.div_ceil(WORKGROUP),
                         placed.job.blocks_y.div_ceil(WORKGROUP),
@@ -328,14 +367,14 @@ impl GpuEncoder {
                 }
             }
         }
-        for (batch, (_, output)) in batches.iter().zip(&prepared) {
+        for (batch, slot) in batches.iter().zip(&scratch.slots) {
             for placed in &batch.placed {
                 let Ok(texture) = &results[placed.tile] else {
                     continue;
                 };
                 cmd.copy_buffer_to_texture(
                     wgpu::TexelCopyBufferInfo {
-                        buffer: output,
+                        buffer: &slot.output,
                         layout: wgpu::TexelCopyBufferLayout {
                             offset: placed.offset,
                             bytes_per_row: Some(placed.row_bytes),
@@ -361,45 +400,178 @@ impl GpuEncoder {
         results
     }
 
-    /// Uploads one batch's texels and jobs; returns its bind group and its
-    /// output buffer.
-    fn prepare(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        batch: &Batch,
-    ) -> (wgpu::BindGroup, wgpu::Buffer) {
-        let input = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tuile block encoder texels"),
-            size: batch.src_bytes.max(4),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+    /// Writes one batch's texels and jobs into its slot.
+    fn upload(&self, queue: &wgpu::Queue, batch: &Batch<'_>, slot: &Slot) {
         let mut at = 0u64;
         for level in &batch.levels {
-            queue.write_buffer(&input, at, level);
+            queue.write_buffer(&slot.input, at, level);
             at += level.len() as u64;
         }
-        let output = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tuile block encoder blocks"),
-            size: batch.dst_bytes.max(16),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
         let stride = self.uniform_align as usize;
         let mut jobs = vec![0u8; stride * batch.placed.len()];
         for (j, placed) in batch.placed.iter().enumerate() {
             jobs[j * stride..j * stride + std::mem::size_of::<Job>()]
                 .copy_from_slice(bytemuck::bytes_of(&placed.job));
         }
-        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("tuile block encoder jobs"),
-            contents: &jobs,
-            usage: wgpu::BufferUsages::UNIFORM,
+        queue.write_buffer(&slot.jobs, 0, &jobs);
+    }
+}
+
+/// The encoder's buffers, kept from one [`GpuEncoder::encode_with`] call to
+/// the next so that encoding a tile allocates nothing but its texture.
+///
+/// It holds one input, one output and one job buffer per storage binding a
+/// call fills (one for a few dozen 256² tiles), grows when a call needs more,
+/// and never shrinks. [`EncoderScratch::bytes`] is the GPU memory it holds.
+/// Built for one encoder, it serves any encoder of the same device.
+#[derive(Default)]
+pub struct EncoderScratch {
+    slots: Vec<Slot>,
+}
+
+impl EncoderScratch {
+    /// An empty scratch: the first call allocates what it needs.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A scratch that holds, up front, what one call encoding `tiles` tiles of
+    /// `width`×`height` with their full mip chains needs: such calls allocate
+    /// no buffer. A tile larger than the device's storage binding gets no
+    /// room, as [`GpuEncoder::encode_with`] refuses it.
+    pub fn with_capacity(
+        device: &wgpu::Device,
+        encoder: &GpuEncoder,
+        tiles: u32,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        let mut scratch = Self::new();
+        let (src, dst, levels) = chain_io(width, height);
+        let largest = src.max(dst);
+        if tiles == 0 || largest > encoder.max_binding {
+            return scratch;
+        }
+        // The same packing as `encode_with`'s batches.
+        let per_slot = (encoder.max_binding / largest).min(tiles as u64);
+        let mut left = tiles as u64;
+        let mut needs = Vec::new();
+        while left > 0 {
+            let n = left.min(per_slot);
+            needs.push(Need {
+                src: n * src,
+                dst: n * dst,
+                jobs: n * levels * encoder.uniform_align,
+            });
+            left -= n;
+        }
+        scratch.fit(device, encoder, &needs);
+        scratch
+    }
+
+    /// The GPU bytes the scratch holds.
+    pub fn bytes(&self) -> u64 {
+        self.slots
+            .iter()
+            .map(|s| s.input.size() + s.output.size() + s.jobs.size())
+            .sum()
+    }
+
+    /// Makes slot `i` hold `needs[i]`, for `encoder`'s bind group layout.
+    fn fit(&mut self, device: &wgpu::Device, encoder: &GpuEncoder, needs: &[Need]) {
+        for (i, need) in needs.iter().enumerate() {
+            match self.slots.get_mut(i) {
+                Some(slot) if slot.holds(need) => {
+                    if slot.layout != encoder.layout {
+                        slot.bind_group = Slot::bind(
+                            device,
+                            &encoder.layout,
+                            &slot.input,
+                            &slot.output,
+                            &slot.jobs,
+                        );
+                        slot.layout = encoder.layout.clone();
+                    }
+                }
+                Some(slot) => {
+                    // Grown to the larger of what it held and what is needed,
+                    // so sizes that alternate settle.
+                    let grown = Need {
+                        src: need.src.max(slot.input.size()),
+                        dst: need.dst.max(slot.output.size()),
+                        jobs: need.jobs.max(slot.jobs.size()),
+                    };
+                    *slot = Slot::new(device, encoder, &grown);
+                }
+                None => self.slots.push(Slot::new(device, encoder, need)),
+            }
+        }
+    }
+}
+
+/// What one batch needs, in bytes.
+struct Need {
+    src: u64,
+    dst: u64,
+    jobs: u64,
+}
+
+/// One batch's buffers and the bind group over them.
+struct Slot {
+    input: wgpu::Buffer,
+    output: wgpu::Buffer,
+    jobs: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    /// The layout `bind_group` was made for.
+    layout: wgpu::BindGroupLayout,
+}
+
+impl Slot {
+    fn new(device: &wgpu::Device, encoder: &GpuEncoder, need: &Need) -> Self {
+        let input = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tuile block encoder texels"),
+            size: need.src.max(4),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let output = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tuile block encoder blocks"),
+            size: need.dst.max(16),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let jobs = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tuile block encoder jobs"),
+            size: need.jobs.max(encoder.uniform_align),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = Self::bind(device, &encoder.layout, &input, &output, &jobs);
+        Self {
+            input,
+            output,
+            jobs,
+            bind_group,
+            layout: encoder.layout.clone(),
+        }
+    }
+
+    fn holds(&self, need: &Need) -> bool {
+        self.input.size() >= need.src
+            && self.output.size() >= need.dst
+            && self.jobs.size() >= need.jobs
+    }
+
+    fn bind(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        input: &wgpu::Buffer,
+        output: &wgpu::Buffer,
+        jobs: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tuile block encoder"),
-            layout: &self.layout,
+            layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -412,32 +584,29 @@ impl GpuEncoder {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &uniforms,
+                        buffer: jobs,
                         offset: 0,
                         size: wgpu::BufferSize::new(std::mem::size_of::<Job>() as u64),
                     }),
                 },
             ],
-        });
-        (bind_group, output)
+        })
     }
 }
 
 /// Tiles packed into one input and one output buffer.
 #[derive(Default)]
-struct Batch {
+struct Batch<'a> {
     placed: Vec<Placed>,
-    levels: Vec<Vec<u8>>,
+    levels: Vec<&'a [u8]>,
     src_bytes: u64,
     dst_bytes: u64,
 }
 
-impl Batch {
-    fn add(&mut self, tile: usize, levels: &[Level<'_>]) {
+impl<'a> Batch<'a> {
+    fn add(&mut self, tile: usize, levels: &[Level<'a>]) {
         for (l, level) in levels.iter().enumerate() {
-            let blocks_x = level.width.div_ceil(BlockFormat::BLOCK_DIM);
-            let blocks_y = level.height.div_ceil(BlockFormat::BLOCK_DIM);
-            let row_bytes = (blocks_x * BlockFormat::BLOCK_BYTES).next_multiple_of(ROW_ALIGN);
+            let (blocks_x, blocks_y, row_bytes) = level_layout(level.width, level.height);
             self.placed.push(Placed {
                 tile,
                 level: l as u32,
@@ -454,19 +623,44 @@ impl Batch {
                 offset: self.dst_bytes,
                 row_bytes,
             });
-            self.levels.push(level.rgba8.to_vec());
+            self.levels.push(level.rgba8);
             self.src_bytes += level.rgba8.len() as u64;
             self.dst_bytes += row_bytes as u64 * blocks_y as u64;
         }
     }
 }
 
+/// Blocks across, blocks down, and the padded bytes of a row of blocks in
+/// the output.
+fn level_layout(width: u32, height: u32) -> (u32, u32, u32) {
+    let blocks_x = width.div_ceil(BlockFormat::BLOCK_DIM);
+    let blocks_y = height.div_ceil(BlockFormat::BLOCK_DIM);
+    let row_bytes = (blocks_x * BlockFormat::BLOCK_BYTES).next_multiple_of(ROW_ALIGN);
+    (blocks_x, blocks_y, row_bytes)
+}
+
+/// Input bytes, output bytes and levels of a `width`×`height` chain down to
+/// 1×1, as the encoder lays them out.
+fn chain_io(width: u32, height: u32) -> (u64, u64, u64) {
+    let (mut w, mut h) = (width.max(1), height.max(1));
+    let (mut src, mut dst, mut levels) = (0, 0, 0);
+    loop {
+        let (_, blocks_y, row_bytes) = level_layout(w, h);
+        src += w as u64 * h as u64 * 4;
+        dst += row_bytes as u64 * blocks_y as u64;
+        levels += 1;
+        if w == 1 && h == 1 {
+            return (src, dst, levels);
+        }
+        w = (w / 2).max(1);
+        h = (h / 2).max(1);
+    }
+}
+
 /// Input and output bytes of one tile's chain.
 fn tile_bytes(levels: &[Level<'_>]) -> (u64, u64) {
     levels.iter().fold((0, 0), |(s, d), level| {
-        let blocks_x = level.width.div_ceil(BlockFormat::BLOCK_DIM);
-        let blocks_y = level.height.div_ceil(BlockFormat::BLOCK_DIM);
-        let row_bytes = (blocks_x * BlockFormat::BLOCK_BYTES).next_multiple_of(ROW_ALIGN);
+        let (_, blocks_y, row_bytes) = level_layout(level.width, level.height);
         (
             s + level.rgba8.len() as u64,
             d + row_bytes as u64 * blocks_y as u64,

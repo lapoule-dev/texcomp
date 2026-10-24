@@ -36,6 +36,10 @@ palette = { version = "0.7.6", default-features = false, features = ["std"] }
 name = "gpu_quality"
 required-features = ["gpu"]
 
+[[test]]
+name = "gpu_pacing"
+required-features = ["gpu"]
+
 [[example]]
 name = "pass-footprint"
 required-features = ["gpu"]
