@@ -62,6 +62,43 @@ impl BlockFormat {
     }
 }
 
+/// What one tile costs to make resident: its blocks and bytes with the full
+/// mip chain down to 1×1, and the RGBA8 bytes the encoder reads to make them.
+///
+/// A pure function of the format and the size, so a scheduler can spread
+/// encodes over frames before any of them runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TileCost {
+    /// Blocks written, every level in whole blocks.
+    pub blocks: u64,
+    /// Bytes resident once encoded: `blocks` times the block size.
+    pub bytes: u64,
+    /// Bytes of the RGBA8 chain the encoder reads, 4 per texel.
+    pub rgba8_bytes: u64,
+}
+
+/// The cost of a `width`×`height` tile in `format`, mips included.
+pub fn tile_cost(format: BlockFormat, width: u32, height: u32) -> TileCost {
+    let (block_dim, block_bytes) = match format {
+        BlockFormat::Bc7 | BlockFormat::Astc4x4 => {
+            (BlockFormat::BLOCK_DIM, BlockFormat::BLOCK_BYTES)
+        }
+    };
+    let (mut w, mut h) = (width.max(1), height.max(1));
+    let mut cost = TileCost::default();
+    loop {
+        let blocks = w.div_ceil(block_dim) as u64 * h.div_ceil(block_dim) as u64;
+        cost.blocks += blocks;
+        cost.bytes += blocks * block_bytes as u64;
+        cost.rgba8_bytes += w as u64 * h as u64 * 4;
+        if w == 1 && h == 1 {
+            return cost;
+        }
+        w = (w / 2).max(1);
+        h = (h / 2).max(1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +114,24 @@ mod tests {
         // 1×1 levels at one block each.
         assert_eq!(BlockFormat::chain_bytes(256, 256), 87_408);
         assert_eq!(BlockFormat::chain_bytes(4, 4), 48);
+    }
+
+    /// **A tile's cost counts every level**, in whole blocks, and its RGBA8
+    /// source texel by texel.
+    #[test]
+    fn tile_cost_counts_the_whole_chain() {
+        for format in BlockFormat::PREFERENCE {
+            // 64², 32², …, 1 blocks, then the 2×2 and 1×1 levels at one each.
+            let c = tile_cost(format, 256, 256);
+            assert_eq!(c.blocks, 4096 + 1024 + 256 + 64 + 16 + 4 + 1 + 1 + 1);
+            assert_eq!(c.bytes, 87_408);
+            assert_eq!(c.bytes, BlockFormat::chain_bytes(256, 256));
+            let texels = 65_536 + 16_384 + 4096 + 1024 + 256 + 64 + 16 + 4 + 1;
+            assert_eq!(c.rgba8_bytes, 4 * texels);
+            // Not square: 8×4, 4×2, 2×1, 1×1 are 2 + 1 + 1 + 1 blocks.
+            let c = tile_cost(format, 8, 4);
+            assert_eq!((c.blocks, c.bytes), (5, 80));
+            assert_eq!(c.rgba8_bytes, 4 * (32 + 8 + 2 + 1));
+        }
     }
 }
