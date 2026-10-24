@@ -173,7 +173,8 @@ Without `gpu` the crate depends on nothing GPU-related.
 ## Status
 
 - **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
-  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU, UASTC decode and UASTC to ASTC 4×4, bit-exact against upstream.
+  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
+  UASTC decode and UASTC to ASTC 4×4, bit-exact against upstream.
 - **Next**: the UASTC encoder (effort levels 0–2), bit-exact against
   upstream, and UASTC to BC7.
 
@@ -181,7 +182,8 @@ Without `gpu` the crate depends on nothing GPU-related.
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Copyright lapoule.dev. Third-party attributions are in [`NOTICE`](./NOTICE).
 
-The files ported from Basis Universal (Apache-2.0, © Binomial LLC) stay
-Apache-2.0 only and carry their attribution; see `NOTICE` and
+The files ported from Basis Universal (Apache-2.0, © Binomial LLC) are
+offered under the same terms. They carry the upstream attribution and a notice
+of modification at the head of each ported item; see `NOTICE` and
 `LICENSE-APACHE-UPSTREAM`. "Basis Universal" is a trademark of Binomial LLC,
 named here only to identify the project this code is ported from.

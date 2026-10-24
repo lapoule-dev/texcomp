@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (C) 2019-2026 Binomial LLC; modifications Copyright (c) lapoule.dev
 //
 // Ported from Basis Universal v2.50 (tag `v2_50`, commit

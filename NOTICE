@@ -26,8 +26,10 @@ transcoder/basisu_transcoder.cpp and transcoder/basisu_transcoder_uastc.h:
   src/uastc/astc.rs     pack_astc_block, pack_astc_solid_block,
                         transcode_uastc_to_astc and their bit-packing helpers
 
-Each ported item carries an attribution comment at its head. Those files may be
-used under the Apache License, Version 2.0 only, as the upstream code is.
+Each ported item carries an attribution comment and a notice of modification
+at its head. Like the rest of texcomp, those files are offered under MIT OR
+Apache-2.0; the upstream code they derive from remains under the Apache
+License, Version 2.0, whose notices above are kept as section 4 requires.
 
 Upstream NOTICE (reproduced as Apache License 2.0 section 4(d) requires):
 
