@@ -22,7 +22,10 @@ struct Job {
     row_words: u32,
     blocks_x: u32,
     blocks_y: u32,
-    _pad: u32,
+    // Texels between two rows of this level in `src`: its width for tightly
+    // packed texels, more for a level copied in from a buffer or a texture
+    // with padded rows.
+    src_stride: u32,
 }
 
 @group(0) @binding(0) var<storage, read> src: array<u32>;
@@ -49,7 +52,7 @@ fn texel(x: u32, y: u32) -> vec4f {
     // the fit.
     let px = min(x, job.width - 1u);
     let py = min(y, job.height - 1u);
-    let v = src[job.src + py * job.width + px];
+    let v = src[job.src + py * job.src_stride + px];
     return vec4f(
         f32(v & 255u),
         f32((v >> 8u) & 255u),
