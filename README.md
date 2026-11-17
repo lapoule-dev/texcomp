@@ -161,6 +161,81 @@ texel like a fresh `encode`, and that the timestamps are written in order. On
 Apple M2 its BC7 pass (four 256² tiles with mips, first pass, no warm-up)
 measured 5 to 7 ms per tile across runs.
 
+## Encoding into your own texture, from the GPU
+
+`GpuEncoder::encode` makes a new texture per tile from texels in memory.
+`GpuEncoder::encode_into` (and `encode_into_with`, its scratch and timestamp
+form) writes the blocks into **textures the caller keeps**, at a mip level, a
+block-aligned origin and an array layer it names, such as one layer of a
+block-compressed texture array. Each level's texels can come from memory or
+**from the GPU**:
+
+- `Source::Cpu(&[u8])`: tightly packed RGBA8, uploaded as `encode` does;
+- `Source::Buffer { buffer, offset, bytes_per_row }`: RGBA8 in a buffer with
+  `COPY_SRC`, rows any multiple of 4 bytes apart;
+- `Source::Texture { texture, mip_level, origin }`: a region of an
+  `Rgba8Unorm` or `Rgba8UnormSrgb` texture (`origin.z` is the array layer)
+  with `COPY_SRC`, such as a layer a compute shader just wrote.
+
+GPU texels are copied into the encoder's input by the same command encoder,
+just ahead of the compute pass, and the blocks are copied into the
+destinations just after it: one submission, no readback, and what the GPU
+wrote earlier in that command encoder is what gets encoded. The kernels bind
+no texture. The blocks are those `encode` writes for the same texels, from
+any source.
+
+Every source and destination is checked before anything is recorded: a
+destination must be in the encoder's format (sRGB or linear), have
+`COPY_DST`, and hold the level's blocks inside its mip level and layer. A
+tile that fails gets its `EncodeError` (`DestinationFormat`,
+`DestinationRegion`, `SourceUsage`, …), records nothing, and leaves its
+destinations as they were. A tile of one level is level 0 alone, without mips.
+
+```rust
+use texcomp::gpu::{Destination, GpuEncoder, Source, SourceLevel, TileInto};
+
+/// Compresses layer `from` of an RGBA8 array the GPU just drew (256², with
+/// `COPY_SRC`) into layer `to` of a BC7 or ASTC array (with `COPY_DST`).
+fn compress_layer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    encoder: &GpuEncoder,
+    cmd: &mut wgpu::CommandEncoder,
+    drawn: &wgpu::Texture,
+    from: u32,
+    cache: &wgpu::Texture,
+    to: u32,
+) -> bool {
+    let levels = [SourceLevel {
+        width: 256,
+        height: 256,
+        source: Source::Texture {
+            texture: drawn,
+            mip_level: 0,
+            origin: wgpu::Origin3d { x: 0, y: 0, z: from },
+        },
+    }];
+    let destinations = [Destination {
+        texture: cache,
+        mip_level: 0,
+        origin: wgpu::Origin3d { x: 0, y: 0, z: to },
+    }];
+    let tile = TileInto {
+        levels: &levels,
+        destinations: &destinations,
+    };
+    // Recorded after the pass that draws `drawn`, before the one that samples
+    // `cache`, in the same command encoder.
+    encoder.encode_into(device, queue, cmd, &[tile])[0].is_ok()
+}
+```
+
+`tests/gpu_into.rs` checks that memory, a padded buffer and a texture layer
+encode to the same blocks, which decode like `encode`'s; that encoding into
+layer N at an origin writes that region and nothing else; that imagery taken
+from a texture layer holds `gpu_quality`'s gate; and that every bad source or
+destination is refused without a device error.
+
 ## KTX 2.0 files
 
 `texcomp::ktx2` (default build, wasm-clean) reads and writes a KTX 2.0 file
@@ -222,8 +297,9 @@ Without `gpu` the crate depends on nothing GPU-related.
 
 ## Status
 
-- **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, and the
-  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps); on the CPU,
+- **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, the
+  pacing API (`tile_cost`, `EncoderScratch`, pass timestamps), and
+  `encode_into` (caller's textures and layers, sources on the GPU); on the CPU,
   the UASTC encoder at effort levels 0–2, UASTC decode and UASTC to ASTC 4×4
   and BC7, all byte-identical to upstream; KTX 2.0 read and write (UASTC,
   BC7, ASTC 4×4, no supercompression).

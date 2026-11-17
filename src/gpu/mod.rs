@@ -90,6 +90,96 @@ pub struct Level<'a> {
     pub rgba8: &'a [u8],
 }
 
+/// Where the RGBA8 texels of one level are read from, for
+/// [`GpuEncoder::encode_into`].
+///
+/// A GPU source is copied into the encoder's input buffer by the caller's
+/// command encoder, just ahead of the compute pass: nothing is read back, and
+/// what the GPU wrote there earlier in that command encoder (or in an earlier
+/// submission) is what gets encoded. The kernels bind no texture: a texture is
+/// copied to the input like a buffer.
+#[derive(Clone, Copy, Debug)]
+pub enum Source<'a> {
+    /// `width * height * 4` bytes in memory, rows top to bottom, uploaded with
+    /// `queue.write_buffer` as a [`Level`]'s are.
+    Cpu(&'a [u8]),
+    /// RGBA8 texels in a buffer with [`wgpu::BufferUsages::COPY_SRC`].
+    Buffer {
+        /// The buffer.
+        buffer: &'a wgpu::Buffer,
+        /// Byte offset of the level's first texel; a multiple of 4.
+        offset: u64,
+        /// Bytes from one row to the next; a multiple of 4, at least
+        /// `width * 4`.
+        bytes_per_row: u32,
+    },
+    /// A `width`×`height` region of a 2-D texture, or of one layer of a 2-D
+    /// array, in [`wgpu::TextureFormat::Rgba8Unorm`] or
+    /// [`wgpu::TextureFormat::Rgba8UnormSrgb`], with
+    /// [`wgpu::TextureUsages::COPY_SRC`]. Its bytes are encoded as stored,
+    /// whichever of the two formats it is.
+    Texture {
+        /// The texture.
+        texture: &'a wgpu::Texture,
+        /// The mip level read.
+        mip_level: u32,
+        /// The region's top-left texel; `z` is the array layer.
+        origin: wgpu::Origin3d,
+    },
+}
+
+/// One mip level of a tile and where its texels are, for
+/// [`GpuEncoder::encode_into`].
+#[derive(Clone, Copy, Debug)]
+pub struct SourceLevel<'a> {
+    /// Width in texels.
+    pub width: u32,
+    /// Height in texels.
+    pub height: u32,
+    /// Where the texels are.
+    pub source: Source<'a>,
+}
+
+impl<'a> From<Level<'a>> for SourceLevel<'a> {
+    fn from(level: Level<'a>) -> Self {
+        Self {
+            width: level.width,
+            height: level.height,
+            source: Source::Cpu(level.rgba8),
+        }
+    }
+}
+
+/// Where [`GpuEncoder::encode_into`] copies one encoded level: a region of a
+/// caller's texture.
+///
+/// The texture is 2-D (an array is fine), single-sampled, in
+/// [`texture_format`] of the encoder's format (sRGB or linear: the blocks are
+/// the same), with [`wgpu::TextureUsages::COPY_DST`]. The level lands at
+/// `origin`, block-aligned, and its blocks (a level smaller than a block is
+/// one whole block) must lie inside the mip level's block-rounded size.
+#[derive(Clone, Copy, Debug)]
+pub struct Destination<'a> {
+    /// The texture.
+    pub texture: &'a wgpu::Texture,
+    /// The mip level written.
+    pub mip_level: u32,
+    /// The top-left texel written, `x` and `y` multiples of 4; `z` is the
+    /// array layer.
+    pub origin: wgpu::Origin3d,
+}
+
+/// One tile for [`GpuEncoder::encode_into`]: its levels, and where each lands.
+#[derive(Clone, Copy, Debug)]
+pub struct TileInto<'a> {
+    /// The tile's levels: level 0 a multiple of 4 on both sides, each next
+    /// one its halving (rounded down, at least 1), as for
+    /// [`GpuEncoder::encode`]. One level alone is level 0 without mips.
+    pub levels: &'a [SourceLevel<'a>],
+    /// One destination per level, in the same order.
+    pub destinations: &'a [Destination<'a>],
+}
+
 /// Why a tile was not encoded. Every one of these is a tile to upload
 /// uncompressed instead, never a tile to drop.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -133,6 +223,62 @@ pub enum EncodeError {
         /// `max_storage_buffer_binding_size`.
         limit: u64,
     },
+    /// A tile for [`GpuEncoder::encode_into`] whose destinations don't pair
+    /// one to one with its levels.
+    #[error("{levels} levels and {destinations} destinations")]
+    Destinations {
+        /// Levels given.
+        levels: usize,
+        /// Destinations given.
+        destinations: usize,
+    },
+    /// A destination texture in a format other than the encoder's.
+    #[error("level {level}: the destination is {got:?}, not a format this encoder writes")]
+    DestinationFormat {
+        /// Level index.
+        level: usize,
+        /// The texture's format.
+        got: wgpu::TextureFormat,
+    },
+    /// A destination texture without [`wgpu::TextureUsages::COPY_DST`].
+    #[error("level {level}: the destination texture has no COPY_DST usage")]
+    DestinationUsage {
+        /// Level index.
+        level: usize,
+    },
+    /// A level that doesn't fit where it is sent: a texture that is not 2-D
+    /// or is multisampled, a mip level or array layer it lacks, an origin
+    /// that is not block-aligned, or blocks beyond the mip level's edge.
+    #[error(
+        "level {level}: the destination region is not inside the texture, or not block-aligned"
+    )]
+    DestinationRegion {
+        /// Level index.
+        level: usize,
+    },
+    /// A source texture that is not RGBA8.
+    #[error("level {level}: the source texture is {got:?}, not Rgba8Unorm or Rgba8UnormSrgb")]
+    SourceFormat {
+        /// Level index.
+        level: usize,
+        /// The texture's format.
+        got: wgpu::TextureFormat,
+    },
+    /// A source buffer or texture without `COPY_SRC` usage.
+    #[error("level {level}: the source has no COPY_SRC usage")]
+    SourceUsage {
+        /// Level index.
+        level: usize,
+    },
+    /// A level that can't be read where its source says: a buffer offset or
+    /// row pitch that is not a multiple of 4, a pitch shorter than a row,
+    /// texels beyond the buffer's end, or a region outside a mip level and
+    /// layer of a single-sampled 2-D texture.
+    #[error("level {level}: the source region is misaligned or outside its buffer or texture")]
+    SourceRegion {
+        /// Level index.
+        level: usize,
+    },
 }
 
 /// The GPU's block encoder for one format.
@@ -159,7 +305,8 @@ struct Job {
     row_words: u32,
     blocks_x: u32,
     blocks_y: u32,
-    _pad: u32,
+    /// Texels between two rows of the level in the input.
+    src_stride: u32,
 }
 
 /// Where one level lands in the output buffer.
@@ -288,31 +435,16 @@ impl GpuEncoder {
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) -> Vec<Result<wgpu::Texture, EncodeError>> {
         let mut results: Vec<Result<wgpu::Texture, EncodeError>> = Vec::with_capacity(tiles.len());
-        // Tiles go into batches whose input and output each fit one storage
-        // binding; every batch is dispatched in the same compute pass.
-        let mut batches: Vec<Batch<'_>> = Vec::new();
-        let mut current = Batch::default();
-        for (t, levels) in tiles.iter().enumerate() {
-            if let Err(e) = validate(levels) {
+        let sources: Vec<Vec<SourceLevel<'_>>> = tiles
+            .iter()
+            .map(|levels| levels.iter().map(|&l| l.into()).collect())
+            .collect();
+        let mut packer = Packer::new(self.max_binding);
+        for (t, levels) in sources.iter().enumerate() {
+            if let Err(e) = validate_sources(levels).and_then(|()| packer.add(t, levels)) {
                 results.push(Err(e));
                 continue;
             }
-            let (src_bytes, dst_bytes) = tile_bytes(levels);
-            let largest = src_bytes.max(dst_bytes);
-            if largest > self.max_binding {
-                results.push(Err(EncodeError::TooLarge {
-                    bytes: largest,
-                    limit: self.max_binding,
-                }));
-                continue;
-            }
-            if !current.placed.is_empty()
-                && (current.src_bytes + src_bytes > self.max_binding
-                    || current.dst_bytes + dst_bytes > self.max_binding)
-            {
-                batches.push(std::mem::take(&mut current));
-            }
-            current.add(t, levels);
             let (width, height) = (levels[0].width, levels[0].height);
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("tuile imagery (block-compressed)"),
@@ -330,13 +462,155 @@ impl GpuEncoder {
             });
             results.push(Ok(texture));
         }
-        if !current.placed.is_empty() {
-            batches.push(current);
-        }
+        let batches = packer.finish();
         if batches.is_empty() {
             return results;
         }
+        self.dispatch(scratch, device, queue, cmd, &batches, timestamp_writes);
+        for (batch, slot) in batches.iter().zip(&scratch.slots) {
+            for placed in &batch.placed {
+                let Ok(texture) = &results[placed.tile] else {
+                    continue;
+                };
+                copy_out(
+                    cmd,
+                    &slot.output,
+                    placed,
+                    texture,
+                    placed.level,
+                    wgpu::Origin3d::ZERO,
+                );
+            }
+        }
+        results
+    }
 
+    /// Encodes each tile's levels into the caller's textures: `destinations`
+    /// say where each level lands (a mip level and a region of a layer of a
+    /// texture the caller keeps, such as one layer of a block-compressed
+    /// array), and `levels` where its texels are read, from memory or from a
+    /// buffer or texture already on the GPU.
+    ///
+    /// Everything is recorded into `cmd`: the copies of GPU sources into the
+    /// encoder's input, one compute pass, and the copies of the blocks into
+    /// the destinations. Nothing is read back, and nothing outside the
+    /// destination regions is written. The blocks are those
+    /// [`GpuEncoder::encode`] writes for the same texels.
+    ///
+    /// [`Source::Cpu`] texels are uploaded with `queue.write_buffer`, which
+    /// lands before the next submission, so `cmd` must be submitted on that
+    /// same queue.
+    ///
+    /// The result has one entry per tile, in order. A tile that fails
+    /// validation gets its [`EncodeError`] and nothing of it is recorded: its
+    /// destinations keep what they held.
+    ///
+    /// Every call creates its buffers; [`GpuEncoder::encode_into_with`] keeps
+    /// them in an [`EncoderScratch`] instead.
+    pub fn encode_into(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cmd: &mut wgpu::CommandEncoder,
+        tiles: &[TileInto<'_>],
+    ) -> Vec<Result<(), EncodeError>> {
+        let mut scratch = EncoderScratch::new();
+        self.encode_into_with(&mut scratch, device, queue, cmd, tiles, None)
+    }
+
+    /// [`GpuEncoder::encode_into`] with the buffers kept in `scratch` and
+    /// optional timestamps around the compute pass, as
+    /// [`GpuEncoder::encode_with`]: **submit `cmd` before the next call with
+    /// the same scratch**.
+    pub fn encode_into_with(
+        &self,
+        scratch: &mut EncoderScratch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cmd: &mut wgpu::CommandEncoder,
+        tiles: &[TileInto<'_>],
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
+    ) -> Vec<Result<(), EncodeError>> {
+        let mut packer = Packer::new(self.max_binding);
+        let results: Vec<Result<(), EncodeError>> = tiles
+            .iter()
+            .enumerate()
+            .map(|(t, tile)| {
+                validate_sources(tile.levels)
+                    .and_then(|()| self.validate_destinations(tile))
+                    .and_then(|()| packer.add(t, tile.levels))
+            })
+            .collect();
+        let batches = packer.finish();
+        if batches.is_empty() {
+            return results;
+        }
+        self.dispatch(scratch, device, queue, cmd, &batches, timestamp_writes);
+        for (batch, slot) in batches.iter().zip(&scratch.slots) {
+            for placed in &batch.placed {
+                let to = &tiles[placed.tile].destinations[placed.level as usize];
+                copy_out(
+                    cmd,
+                    &slot.output,
+                    placed,
+                    to.texture,
+                    to.mip_level,
+                    to.origin,
+                );
+            }
+        }
+        results
+    }
+
+    /// Every destination of `tile` takes its level.
+    fn validate_destinations(&self, tile: &TileInto<'_>) -> Result<(), EncodeError> {
+        if tile.destinations.len() != tile.levels.len() {
+            return Err(EncodeError::Destinations {
+                levels: tile.levels.len(),
+                destinations: tile.destinations.len(),
+            });
+        }
+        for (l, (level, to)) in tile.levels.iter().zip(tile.destinations).enumerate() {
+            let format = to.texture.format();
+            if format != texture_format(self.format, true)
+                && format != texture_format(self.format, false)
+            {
+                return Err(EncodeError::DestinationFormat {
+                    level: l,
+                    got: format,
+                });
+            }
+            if !to.texture.usage().contains(wgpu::TextureUsages::COPY_DST) {
+                return Err(EncodeError::DestinationUsage { level: l });
+            }
+            let (blocks_x, blocks_y, _) = level_layout(level.width, level.height);
+            if !region_fits(
+                to.texture,
+                to.mip_level,
+                to.origin,
+                (
+                    blocks_x * BlockFormat::BLOCK_DIM,
+                    blocks_y * BlockFormat::BLOCK_DIM,
+                ),
+                BlockFormat::BLOCK_DIM,
+            ) {
+                return Err(EncodeError::DestinationRegion { level: l });
+            }
+        }
+        Ok(())
+    }
+
+    /// Fits `scratch` to `batches`, fills their inputs and jobs, and records
+    /// the compute pass that writes their blocks into the scratch's outputs.
+    fn dispatch(
+        &self,
+        scratch: &mut EncoderScratch,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cmd: &mut wgpu::CommandEncoder,
+        batches: &[Batch<'_>],
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
+    ) {
         let needs: Vec<Need> = batches
             .iter()
             .map(|b| Need {
@@ -347,7 +621,7 @@ impl GpuEncoder {
             .collect();
         scratch.fit(device, self, &needs);
         for (batch, slot) in batches.iter().zip(&scratch.slots) {
-            self.upload(queue, batch, slot);
+            self.upload(queue, cmd, batch, slot);
         }
         {
             let mut pass = cmd.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -367,45 +641,49 @@ impl GpuEncoder {
                 }
             }
         }
-        for (batch, slot) in batches.iter().zip(&scratch.slots) {
-            for placed in &batch.placed {
-                let Ok(texture) = &results[placed.tile] else {
-                    continue;
-                };
-                cmd.copy_buffer_to_texture(
-                    wgpu::TexelCopyBufferInfo {
-                        buffer: &slot.output,
-                        layout: wgpu::TexelCopyBufferLayout {
-                            offset: placed.offset,
-                            bytes_per_row: Some(placed.row_bytes),
-                            rows_per_image: Some(placed.job.blocks_y),
-                        },
-                    },
-                    wgpu::TexelCopyTextureInfo {
-                        texture,
-                        mip_level: placed.level,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    // A level smaller than a block is copied at its
-                    // physical (block-rounded) size.
-                    wgpu::Extent3d {
-                        width: placed.job.blocks_x * BlockFormat::BLOCK_DIM,
-                        height: placed.job.blocks_y * BlockFormat::BLOCK_DIM,
-                        depth_or_array_layers: 1,
-                    },
-                );
-            }
-        }
-        results
     }
 
-    /// Writes one batch's texels and jobs into its slot.
-    fn upload(&self, queue: &wgpu::Queue, batch: &Batch<'_>, slot: &Slot) {
-        let mut at = 0u64;
-        for level in &batch.levels {
-            queue.write_buffer(&slot.input, at, level);
-            at += level.len() as u64;
+    /// Writes one batch's texels and jobs into its slot: texels in memory
+    /// through `queue`, texels on the GPU by copies recorded into `cmd`.
+    fn upload(
+        &self,
+        queue: &wgpu::Queue,
+        cmd: &mut wgpu::CommandEncoder,
+        batch: &Batch<'_>,
+        slot: &Slot,
+    ) {
+        for input in &batch.inputs {
+            match input.level.source {
+                Source::Cpu(rgba8) => queue.write_buffer(&slot.input, input.at, rgba8),
+                Source::Buffer { buffer, offset, .. } => {
+                    cmd.copy_buffer_to_buffer(buffer, offset, &slot.input, input.at, input.bytes);
+                }
+                Source::Texture {
+                    texture,
+                    mip_level,
+                    origin,
+                } => cmd.copy_texture_to_buffer(
+                    wgpu::TexelCopyTextureInfo {
+                        texture,
+                        mip_level,
+                        origin,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &slot.input,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: input.at,
+                            bytes_per_row: Some(input.stride * 4),
+                            rows_per_image: Some(input.level.height),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: input.level.width,
+                        height: input.level.height,
+                        depth_or_array_layers: 1,
+                    },
+                ),
+            }
         }
         let stride = self.uniform_align as usize;
         let mut jobs = vec![0u8; stride * batch.placed.len()];
@@ -598,15 +876,27 @@ impl Slot {
 #[derive(Default)]
 struct Batch<'a> {
     placed: Vec<Placed>,
-    levels: Vec<&'a [u8]>,
+    inputs: Vec<Input<'a>>,
     src_bytes: u64,
     dst_bytes: u64,
 }
 
+/// One level's texels, and where they go in the batch's input.
+struct Input<'a> {
+    level: SourceLevel<'a>,
+    /// Byte offset in the input.
+    at: u64,
+    /// Texels from one row to the next in the input.
+    stride: u32,
+    /// Bytes taken in the input.
+    bytes: u64,
+}
+
 impl<'a> Batch<'a> {
-    fn add(&mut self, tile: usize, levels: &[Level<'a>]) {
+    fn add(&mut self, tile: usize, levels: &[SourceLevel<'a>]) {
         for (l, level) in levels.iter().enumerate() {
             let (blocks_x, blocks_y, row_bytes) = level_layout(level.width, level.height);
+            let (stride, bytes) = input_layout(level);
             self.placed.push(Placed {
                 tile,
                 level: l as u32,
@@ -618,16 +908,102 @@ impl<'a> Batch<'a> {
                     row_words: row_bytes / 4,
                     blocks_x,
                     blocks_y,
-                    _pad: 0,
+                    src_stride: stride,
                 },
                 offset: self.dst_bytes,
                 row_bytes,
             });
-            self.levels.push(level.rgba8);
-            self.src_bytes += level.rgba8.len() as u64;
+            self.inputs.push(Input {
+                level: *level,
+                at: self.src_bytes,
+                stride,
+                bytes,
+            });
+            self.src_bytes += bytes;
             self.dst_bytes += row_bytes as u64 * blocks_y as u64;
         }
     }
+}
+
+/// Packs valid tiles into batches whose input and output each fit one
+/// storage binding; every batch is dispatched in the same compute pass.
+struct Packer<'a> {
+    max_binding: u64,
+    batches: Vec<Batch<'a>>,
+    current: Batch<'a>,
+}
+
+impl<'a> Packer<'a> {
+    fn new(max_binding: u64) -> Self {
+        Self {
+            max_binding,
+            batches: Vec::new(),
+            current: Batch::default(),
+        }
+    }
+
+    /// Adds a validated tile, or refuses it, unchanged, when it is larger
+    /// than one storage binding.
+    fn add(&mut self, tile: usize, levels: &[SourceLevel<'a>]) -> Result<(), EncodeError> {
+        let (src_bytes, dst_bytes) = tile_bytes(levels);
+        let largest = src_bytes.max(dst_bytes);
+        if largest > self.max_binding {
+            return Err(EncodeError::TooLarge {
+                bytes: largest,
+                limit: self.max_binding,
+            });
+        }
+        if !self.current.placed.is_empty()
+            && (self.current.src_bytes + src_bytes > self.max_binding
+                || self.current.dst_bytes + dst_bytes > self.max_binding)
+        {
+            self.batches.push(std::mem::take(&mut self.current));
+        }
+        self.current.add(tile, levels);
+        Ok(())
+    }
+
+    fn finish(mut self) -> Vec<Batch<'a>> {
+        if !self.current.placed.is_empty() {
+            self.batches.push(self.current);
+        }
+        self.batches
+    }
+}
+
+/// Records the copy of one placed level's blocks from `output` into a
+/// texture region.
+fn copy_out(
+    cmd: &mut wgpu::CommandEncoder,
+    output: &wgpu::Buffer,
+    placed: &Placed,
+    texture: &wgpu::Texture,
+    mip_level: u32,
+    origin: wgpu::Origin3d,
+) {
+    cmd.copy_buffer_to_texture(
+        wgpu::TexelCopyBufferInfo {
+            buffer: output,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: placed.offset,
+                bytes_per_row: Some(placed.row_bytes),
+                rows_per_image: Some(placed.job.blocks_y),
+            },
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level,
+            origin,
+            aspect: wgpu::TextureAspect::All,
+        },
+        // A level smaller than a block is copied at its physical
+        // (block-rounded) size.
+        wgpu::Extent3d {
+            width: placed.job.blocks_x * BlockFormat::BLOCK_DIM,
+            height: placed.job.blocks_y * BlockFormat::BLOCK_DIM,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 /// Blocks across, blocks down, and the padded bytes of a row of blocks in
@@ -637,6 +1013,23 @@ fn level_layout(width: u32, height: u32) -> (u32, u32, u32) {
     let blocks_y = height.div_ceil(BlockFormat::BLOCK_DIM);
     let row_bytes = (blocks_x * BlockFormat::BLOCK_BYTES).next_multiple_of(ROW_ALIGN);
     (blocks_x, blocks_y, row_bytes)
+}
+
+/// Texels from one row to the next, and bytes taken, of a validated level in
+/// the encoder's input. Texels in memory are packed tightly; a buffer's keep
+/// its pitch, and a texture's are copied at the pitch a texture-to-buffer
+/// copy needs.
+fn input_layout(level: &SourceLevel<'_>) -> (u32, u64) {
+    let tight = level.width as u64 * 4;
+    let pitch = match level.source {
+        Source::Cpu(_) => tight,
+        Source::Buffer { bytes_per_row, .. } => bytes_per_row as u64,
+        Source::Texture { .. } => tight.next_multiple_of(ROW_ALIGN as u64),
+    };
+    (
+        (pitch / 4) as u32,
+        pitch * (level.height as u64 - 1) + tight,
+    )
 }
 
 /// Input bytes, output bytes and levels of a `width`×`height` chain down to
@@ -658,17 +1051,48 @@ fn chain_io(width: u32, height: u32) -> (u64, u64, u64) {
 }
 
 /// Input and output bytes of one tile's chain.
-fn tile_bytes(levels: &[Level<'_>]) -> (u64, u64) {
+fn tile_bytes(levels: &[SourceLevel<'_>]) -> (u64, u64) {
     levels.iter().fold((0, 0), |(s, d), level| {
         let (_, blocks_y, row_bytes) = level_layout(level.width, level.height);
         (
-            s + level.rgba8.len() as u64,
+            s + input_layout(level).1,
             d + row_bytes as u64 * blocks_y as u64,
         )
     })
 }
 
-fn validate(levels: &[Level<'_>]) -> Result<(), EncodeError> {
+/// Whether a `size` region at `origin` of `mip_level` lies inside `texture`,
+/// a single-sampled 2-D texture, with `origin` on a multiple of `align` and
+/// the mip level's size rounded up to `align`.
+fn region_fits(
+    texture: &wgpu::Texture,
+    mip_level: u32,
+    origin: wgpu::Origin3d,
+    size: (u32, u32),
+    align: u32,
+) -> bool {
+    if texture.dimension() != wgpu::TextureDimension::D2
+        || texture.sample_count() != 1
+        || mip_level >= texture.mip_level_count()
+        || origin.z >= texture.depth_or_array_layers()
+        || !origin.x.is_multiple_of(align)
+        || !origin.y.is_multiple_of(align)
+    {
+        return false;
+    }
+    let width = (texture.width() >> mip_level)
+        .max(1)
+        .next_multiple_of(align);
+    let height = (texture.height() >> mip_level)
+        .max(1)
+        .next_multiple_of(align);
+    origin.x as u64 + size.0 as u64 <= width as u64
+        && origin.y as u64 + size.1 as u64 <= height as u64
+}
+
+/// A tile's levels form a block-aligned mip chain, and each can be read where
+/// its source says.
+fn validate_sources(levels: &[SourceLevel<'_>]) -> Result<(), EncodeError> {
     let Some(first) = levels.first() else {
         return Err(EncodeError::Empty);
     };
@@ -691,13 +1115,64 @@ fn validate(levels: &[Level<'_>]) -> Result<(), EncodeError> {
                 want,
             });
         }
-        let bytes = (level.width * level.height * 4) as usize;
-        if level.rgba8.len() != bytes {
-            return Err(EncodeError::LevelBytes {
-                level: l,
-                got: level.rgba8.len(),
-                want: bytes,
-            });
+        validate_source(l, level)?;
+    }
+    Ok(())
+}
+
+/// Level `l`, of a valid size, can be read where its source says.
+fn validate_source(l: usize, level: &SourceLevel<'_>) -> Result<(), EncodeError> {
+    let tight = level.width as u64 * 4;
+    match level.source {
+        Source::Cpu(rgba8) => {
+            let want = (tight * level.height as u64) as usize;
+            if rgba8.len() != want {
+                return Err(EncodeError::LevelBytes {
+                    level: l,
+                    got: rgba8.len(),
+                    want,
+                });
+            }
+        }
+        Source::Buffer {
+            buffer,
+            offset,
+            bytes_per_row,
+        } => {
+            if !buffer.usage().contains(wgpu::BufferUsages::COPY_SRC) {
+                return Err(EncodeError::SourceUsage { level: l });
+            }
+            let pitch = bytes_per_row as u64;
+            let end = offset.saturating_add(pitch * (level.height as u64 - 1) + tight);
+            if !offset.is_multiple_of(4)
+                || !pitch.is_multiple_of(4)
+                || pitch < tight
+                || end > buffer.size()
+            {
+                return Err(EncodeError::SourceRegion { level: l });
+            }
+        }
+        Source::Texture {
+            texture,
+            mip_level,
+            origin,
+        } => {
+            let format = texture.format();
+            if !matches!(
+                format,
+                wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb
+            ) {
+                return Err(EncodeError::SourceFormat {
+                    level: l,
+                    got: format,
+                });
+            }
+            if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+                return Err(EncodeError::SourceUsage { level: l });
+            }
+            if !region_fits(texture, mip_level, origin, (level.width, level.height), 1) {
+                return Err(EncodeError::SourceRegion { level: l });
+            }
         }
     }
     Ok(())
@@ -746,6 +1221,113 @@ fn astc_tables() -> String {
 mod tests {
     use super::*;
     use crate::astc::*;
+
+    fn validate(levels: &[Level<'_>]) -> Result<(), EncodeError> {
+        let sources: Vec<SourceLevel<'_>> = levels.iter().map(|&l| l.into()).collect();
+        validate_sources(&sources)
+    }
+
+    /// The `let`s of `source` that would hold a texture or a sampler: typed as
+    /// one, or bound to a module-scope texture or sampler. naga accepts them;
+    /// WebKit's WebGPU refuses the module (`'texture_2d<f32>' cannot be used
+    /// as the type of a 'let'`).
+    fn texture_lets(source: &str) -> Vec<String> {
+        let code: String = source
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let handle_type = |ty: &str| {
+            ty.trim_start().starts_with("texture_") || ty.trim_start().starts_with("sampler")
+        };
+        let words = |s: &str| -> Vec<String> {
+            s.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .filter(|w| !w.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        // `var name: texture_…` / `var name: sampler…` at any scope.
+        let mut handles = Vec::new();
+        for statement in code.split(';') {
+            let Some(at) = statement.find("var ") else {
+                continue;
+            };
+            let decl = &statement[at + 4..];
+            if let Some((name, ty)) = decl.split_once(':') {
+                if handle_type(ty) {
+                    handles.extend(words(name));
+                }
+            }
+        }
+        let mut found = Vec::new();
+        for statement in code.split(';') {
+            let Some(at) = statement.match_indices("let").map(|(i, _)| i).find(|&i| {
+                let before = statement[..i].chars().last();
+                let after = statement[i + 3..].chars().next();
+                !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    && after.is_some_and(char::is_whitespace)
+            }) else {
+                continue;
+            };
+            let decl = &statement[at + 3..];
+            let Some((head, value)) = decl.split_once('=') else {
+                continue;
+            };
+            let typed = head.split_once(':').is_some_and(|(_, ty)| handle_type(ty));
+            let value = value.trim();
+            let bound = handles.iter().any(|h| {
+                value == h
+                    || value
+                        .strip_prefix(h.as_str())
+                        .is_some_and(|r| r.trim_start().starts_with('['))
+            });
+            if typed || bound {
+                found.push(format!("let{}", statement[at + 3..].trim_end()));
+            }
+        }
+        found
+    }
+
+    /// **No WGSL in the crate binds a texture or a sampler to a `let`**, which
+    /// WebKit rejects though naga and the other browsers accept it.
+    #[test]
+    fn no_wgsl_binds_a_texture_to_a_let() {
+        // The scan finds what it is for.
+        let bad = "@group(0) @binding(0) var tex: texture_2d<f32>;\n\
+                   @group(0) @binding(1) var smp: sampler;\n\
+                   fn f() { let t = tex; let s: sampler = smp; let n = 3; }";
+        assert_eq!(texture_lets(bad).len(), 2, "{:?}", texture_lets(bad));
+        assert!(
+            texture_lets("fn f(t: texture_2d<f32>) { let x = textureLoad(t, vec2i(0), 0); }")
+                .is_empty()
+        );
+
+        let mut files = Vec::new();
+        let mut dirs = vec![std::path::PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src"
+        ))];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src is readable") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "wgsl") {
+                    files.push(path);
+                }
+            }
+        }
+        assert!(files.len() >= 3, "the kernels: {files:?}");
+        for path in files {
+            let source = std::fs::read_to_string(&path).expect("wgsl");
+            let found = texture_lets(&source);
+            assert!(found.is_empty(), "{}: {found:?}", path.display());
+        }
+        // The kernels as compiled, with their generated tables.
+        for format in BlockFormat::PREFERENCE {
+            assert!(texture_lets(&shader_source(format)).is_empty());
+        }
+    }
 
     /// **Every trit quintuple has an encoding, and it decodes back.**
     #[test]
