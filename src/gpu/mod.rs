@@ -1075,8 +1075,8 @@ fn region_fits(
         || texture.sample_count() != 1
         || mip_level >= texture.mip_level_count()
         || origin.z >= texture.depth_or_array_layers()
-        || origin.x % align != 0
-        || origin.y % align != 0
+        || !origin.x.is_multiple_of(align)
+        || !origin.y.is_multiple_of(align)
     {
         return false;
     }
@@ -1143,10 +1143,12 @@ fn validate_source(l: usize, level: &SourceLevel<'_>) -> Result<(), EncodeError>
                 return Err(EncodeError::SourceUsage { level: l });
             }
             let pitch = bytes_per_row as u64;
-            let end = offset
-                .checked_add(pitch * (level.height as u64 - 1) + tight)
-                .unwrap_or(u64::MAX);
-            if offset % 4 != 0 || pitch % 4 != 0 || pitch < tight || end > buffer.size() {
+            let end = offset.saturating_add(pitch * (level.height as u64 - 1) + tight);
+            if !offset.is_multiple_of(4)
+                || !pitch.is_multiple_of(4)
+                || pitch < tight
+                || end > buffer.size()
+            {
                 return Err(EncodeError::SourceRegion { level: l });
             }
         }

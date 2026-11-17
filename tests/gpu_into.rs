@@ -753,8 +753,10 @@ fn imagery_from_a_texture_layer_holds_the_gate() {
                 continue;
             }
             let se: f64 = src
-                .chunks_exact(4)
-                .zip(got.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(got.as_chunks::<4>().0)
                 .map(|(s, g)| {
                     (0..3)
                         .map(|c| (s[c] as f64 - g[c] as f64).powi(2))
