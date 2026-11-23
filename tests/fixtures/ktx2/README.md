@@ -58,3 +58,37 @@ docker buildx build --builder stl-builder-k8s --platform linux/amd64 \
 `<dir>` then holds `upstream/`, `validate.txt`, `commands.txt`,
 `toolchain.txt` and upstream's licence. A second run gave the same upstream
 files, byte for byte.
+
+## `khronos/`: KTX-Software's own files
+
+For `tests/ktx2_complete.rs`: six files of the Khronos KTX-Software test set,
+tag **v4.4.2**, `tests/testimages/`, fetched on 23 Nov. 2026 from
+`https://media.githubusercontent.com/media/KhronosGroup/KTX-Software/v4.4.2/tests/testimages/<name>`.
+Licence: **Apache-2.0**, © 2015-2022 The Khronos Group Inc. (KTX-Software's
+`REUSE.toml`, which covers every `.ktx2` of the repository).
+
+| File | What it is | What the test checks |
+|---|---|---|
+| `rgba-reference-u.ktx2` | R8G8B8A8_SRGB, 128², one level | shape, texels, rewrite |
+| `cyan_rgba_reference_u.ktx2` | R8G8B8A8_SRGB, 64², one level | shape, texels, rewrite |
+| `arraytex_7_mipmap_reference_u.ktx2` | R8G8B8A8_SRGB, 16², 7 layers, 5 levels | array layout, texels, rewrite |
+| `3dtex_7_reference_u.ktx2` | R8G8B8A8_SRGB, 16²×7, one level | 3D layout, texels, rewrite |
+| `color_grid_uastc_zstd.ktx2` | UASTC RGB, 1024², Zstandard | Zstandard as libktx writes it; the blocks decode as libktx decodes them |
+| `rgba-mipmap-reference-basis.ktx2` | ETC1S, BasisLZ | refused with `Supercompression(1)` |
+
+The texels are pinned by the FNV-1a of level 0 as `ktx extract --raw` (libktx
+4.4.2) writes it, image after image; for the UASTC file that is its decode
+to RGB8, which this crate's decode must match. `print_khronos_hashes`
+(ignored; needs `TEXCOMP_KTX`) prints them again.
+
+## The Khronos tool, live
+
+With `TEXCOMP_KTX` naming the `ktx` tool of KTX-Software 4.4.2 (the macOS
+package's `ktx` binary and `libktx.4.dylib`, unpacked without installing;
+a wrapper setting `DYLD_LIBRARY_PATH` will do), `tests/ktx2_complete.rs`
+also checks every file the writer makes for every texture type, format and
+supercompression scheme with `ktx validate` (no error, no warning but the
+custom-key one the files with pairs of their own carry), compares every
+image `ktx extract --raw` reads out of them with `Texture::image`, and
+compares libktx's transcodes of real UASTC blocks to BC7 and ASTC with this
+crate's. `TEXCOMP_REQUIRE_KTX=1` makes the tool's absence a failure.

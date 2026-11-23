@@ -26,11 +26,11 @@
 
 mod astc;
 mod bc1;
-mod bc7;
+pub(crate) mod bc7;
 mod cell;
 mod encode;
 mod etc;
-mod tables;
+pub(crate) mod tables;
 mod unpack;
 
 /// Number of UASTC block modes, the solid-colour mode included.

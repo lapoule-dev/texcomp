@@ -1,6 +1,6 @@
 [package]
 name = "texcomp"
-version = "0.3.0"
+version = "0.4.0"
 description = "GPU block-compressed textures (BC7, ASTC), encoded on the fly from RGBA8 by WGSL compute kernels or on the CPU"
 edition = "2021"
 rust-version = "1.97"
@@ -17,6 +17,10 @@ gpu = ["dep:wgpu", "dep:bytemuck"]
 
 [dependencies]
 thiserror = "2.0.18"
+# KTX 2.0 supercompression, pure Rust (wasm-clean): Zstandard (scheme 2) and
+# ZLIB (scheme 3).
+ruzstd = "0.8.2"
+miniz_oxide = "0.8.9"
 # The same major as tuile's. No default features: the application that links
 # this picks its backends; only the WGSL front end is needed here.
 wgpu = { version = "30.0.1", default-features = false, features = ["wgsl"], optional = true }
@@ -31,6 +35,12 @@ pollster = "0.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 # CIEDE2000 for the quality gate.
 palette = { version = "0.7.6", default-features = false, features = ["std"] }
+# The test oracle: an independent software decoder of BC7 and ASTC, which
+# every block the encoders write must decode through as they predict.
+texture2ddecoder = "0.1.2"
+# A KTX 2.0 reader written independently of this crate, an oracle for the
+# files the writer makes.
+ktx2 = "0.5.0"
 
 [[test]]
 name = "gpu_quality"
@@ -44,12 +54,20 @@ required-features = ["gpu"]
 name = "gpu_into"
 required-features = ["gpu"]
 
+[[test]]
+name = "gpu_oracle"
+required-features = ["gpu"]
+
 [[example]]
 name = "pass-footprint"
 required-features = ["gpu"]
 
 [[example]]
 name = "uastc-speed"
+
+[[example]]
+name = "quality-report"
+required-features = ["gpu"]
 
 [lints.rust]
 unsafe_code = "forbid"

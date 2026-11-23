@@ -32,8 +32,12 @@ device reports.
 - **On the GPU** (feature `gpu`, wgpu 30): WGSL compute kernels write BC7 and
   ASTC 4×4 blocks from RGBA8 mip levels, and `GpuEncoder` dispatches them. One
   call records one compute pass and the copies into the caller's command
-  encoder. `gpu::runs_on` says whether a device can run the kernels.
-- **On the CPU** (default build, `std` and `thiserror` only,
+  encoder. `gpu::runs_on` says whether a device can run the kernels. BC7 uses
+  all eight of its modes; ASTC one or two partitions, one or two weight
+  planes, four colour endpoint modes and weight ranges up to 0..31. How hard
+  they search is a `gpu::Quality`, numbers compiled into the kernel.
+- **On the CPU** (default build: `thiserror`, and `ruzstd` and `miniz_oxide`
+  for KTX 2.0 supercompression, all pure Rust;
   `wasm32-unknown-unknown` clean): a port of the block layer of
   [Basis Universal](https://github.com/BinomialLLC/basis_universal) v2.50, for
   devices without compute shaders, such as WebGL2. UASTC LDR 4×4 is its
@@ -45,25 +49,61 @@ device reports.
 
 ## Quality and cost
 
-Measured by `tests/gpu_quality.rs` on Apple M2 (Metal). Twenty 256² tiles are
-cut from five NASA imagery tiles (`tests/fixtures/imagery`, public domain) and
-encoded with their full mip chains. The GPU's own block decoder reads them
-back, and they are scored per tile and per level.
+Measured by `examples/quality-report.rs` on Apple M2 (Metal), 23 Nov. 2026:
+six 256² IGN aerial orthophoto tiles (`tests/fixtures/aerial`, Licence
+Ouverte 2.0) and twenty 256² tiles cut from NASA imagery
+(`tests/fixtures/imagery`, public domain), each encoded with its full mip
+chain. The blocks are read back and decoded by a software decoder
+independent of this crate (`texture2ddecoder`), checked against the GPU's
+own decode. PSNR over RGB and over luma (BT.601) and SSIM over luma are
+for level 0 of each tile, averaged; "worst" is the worst tile. GPU time is
+the compute pass's, from timestamps, per 256² tile with its mips (wall time
+to completion is within 1 ms of it).
 
-| Format | Worst PSNR | Worst ΔE2000 mean | Worst ΔE2000 p99 | Encode, per 256² tile with mips |
-|---|---|---|---|---|
-| BC7 | 40.3 dB | 2.09 | 5.35 | 5.1 ms |
-| ASTC 4×4 | 36.4 dB (night lights) | 2.43 | 9.40 | 1.9 ms |
+Aerial (IGN, 6 tiles):
 
-- Typical levels on imagery score 43–50 dB. The worst ASTC tile is night
-  lights: bright points on black, which one partition per block fits worst.
-- No texel anywhere decodes to a hole (black or transparent where the source
-  draws).
-- The test holds every tile to a gate set just beyond these worst values, so
-  a regression fails it. `TEXCOMP_REQUIRE_GPU=1` turns its skip on a machine
-  without a GPU into a failure.
-- Encode time is wall clock (upload, encode and copy, to the GPU's
-  completion) in a release build, as `encode_time_is_reported` prints it.
+| Format, `Quality::level` | PSNR RGB | PSNR Y | SSIM Y | worst PSNR RGB | GPU ms / tile |
+|---|---|---|---|---|---|
+| BC7, 0 (the 0.3 search) | 45.85 | 47.83 | 0.9982 | 43.19 | 4.2 |
+| BC7, **1 (default)** | 45.95 | 47.91 | 0.9982 | 43.29 | 12.1 |
+| BC7, 2 | 46.00 | 47.95 | 0.9983 | 43.36 | 32.0 |
+| BC7, 4 | 46.10 | 48.04 | 0.9983 | 43.49 | 144.1 |
+| ASTC 4×4, 0 (the 0.3 search) | 43.97 | 45.30 | 0.9974 | 40.88 | 1.4 |
+| ASTC 4×4, **1 (default)** | 46.79 | 50.22 | 0.9988 | 44.29 | 26.6 |
+| ASTC 4×4, 2 | 46.80 | 50.20 | 0.9988 | 44.30 | 36.0 |
+| ASTC 4×4, 4 | 46.81 | 50.20 | 0.9988 | 44.31 | 100.4 |
+
+NASA (20 tiles):
+
+| Format, `Quality::level` | PSNR RGB | PSNR Y | SSIM Y | worst PSNR RGB | GPU ms / tile |
+|---|---|---|---|---|---|
+| BC7, 0 | 48.00 | 50.28 | 0.9983 | 42.23 | 4.8 |
+| BC7, **1** | 48.13 | 50.33 | 0.9983 | 42.58 | 12.2 |
+| BC7, 2 | 48.39 | 50.54 | 0.9983 | 43.84 | 28.3 |
+| BC7, 4 | 48.45 | 50.56 | 0.9983 | 44.00 | 113.3 |
+| ASTC 4×4, 0 | 47.14 | 49.90 | 0.9982 | 36.40 | 1.0 |
+| ASTC 4×4, **1** | 49.65 | 52.49 | 0.9987 | 41.64 | 25.4 |
+| ASTC 4×4, 2 | 49.74 | 52.61 | 0.9987 | 42.03 | 35.5 |
+| ASTC 4×4, 4 | 49.78 | 52.64 | 0.9987 | 42.17 | 91.4 |
+
+- **ASTC gains the most**: +2.8 dB RGB and +4.9 dB luma on aerial imagery
+  at level 1, +5.2 dB on the worst tile (night lights, which two partitions
+  fit). The extra weight ranges and base + scale endpoints carry most of it;
+  two partitions and two planes the hard blocks.
+- **BC7 was already near what its block allows** with modes 6 and 1: the
+  other six modes add 0.1 to 0.5 dB on average and up to 1.6 dB on the
+  worst tile, at 3 to 30 times the GPU time.
+- Level 1 is the default: the bulk of the ASTC gain, and a BC7 cost a frame
+  budget still absorbs. Level 2 adds three-subset BC7 modes and more ASTC
+  partitioned configurations for the hardest tiles.
+- For comparison, the CPU path (UASTC at upstream's effort 0, transcoded)
+  scores 44.3 dB (BC7) and 45.1 dB (ASTC) on the aerial tiles, at 70 ms of
+  CPU per tile.
+- `tests/gpu_oracle.rs` holds every level to valid blocks (oracle and GPU
+  decodes agree), opaque blocks to alpha 255, every tile to at least level
+  0's PSNR, and structured random blocks to stated error bounds;
+  `tests/gpu_quality.rs` holds the default to its quality gate. Without a
+  GPU they skip; `TEXCOMP_REQUIRE_GPU=1` makes that a failure.
 
 ## Usage
 
@@ -103,6 +143,24 @@ fn make_resident(
 `chain` is level 0 and its mips down to 1×1, each tightly packed RGBA8. Level
 0 must be a multiple of 4 on both sides. A tile that cannot be encoded comes
 back as an `EncodeError`: the caller uploads it uncompressed, never drops it.
+
+`GpuEncoder::new` compiles the kernel at `Quality::DEFAULT`;
+`GpuEncoder::with_quality` takes another, such as `Quality::level(2)` or one
+written field by field:
+
+```rust
+use texcomp::gpu::{GpuEncoder, Quality};
+use texcomp::BlockFormat;
+
+fn encoders(device: &wgpu::Device) -> (GpuEncoder, GpuEncoder) {
+    // Phones: two partitions too, worth their cost on ASTC.
+    let astc = GpuEncoder::with_quality(device, BlockFormat::Astc4x4, Quality::level(2));
+    // Desktops: the default.
+    let bc7 = GpuEncoder::new(device, BlockFormat::Bc7);
+    assert_eq!(bc7.quality(), Quality::DEFAULT);
+    (astc, bc7)
+}
+```
 
 ## Spreading encodes over frames
 
@@ -157,9 +215,9 @@ fn encode_some(
 
 `tests/gpu_pacing.rs` checks that a sized scratch neither grows nor
 reallocates call after call, that a call through a scratch decodes texel for
-texel like a fresh `encode`, and that the timestamps are written in order. On
-Apple M2 its BC7 pass (four 256² tiles with mips, first pass, no warm-up)
-measured 5 to 7 ms per tile across runs.
+texel like a fresh `encode`, and that the timestamps are written in order.
+The GPU time per tile of each format and quality level is in the table of
+[Quality and cost](#quality-and-cost).
 
 ## Encoding into your own texture, from the GPU
 
@@ -238,32 +296,36 @@ destination is refused without a device error.
 
 ## KTX 2.0 files
 
-`texcomp::ktx2` (default build, wasm-clean) reads and writes a KTX 2.0 file
-holding one 2D texture with its mips, written from the Khronos KTX 2.0 and
-Data Format 1.4 specifications:
+`texcomp::ktx2` (default build, wasm-clean) reads and writes KTX 2.0 files,
+written from the Khronos KTX 2.0 and Data Format 1.4 specifications. All of
+what it declares is implemented, both ways:
 
-- **UASTC** (`vkFormat` UNDEFINED with a UASTC data format descriptor),
-  **BC7** and **ASTC 4×4**, linear or sRGB (the `*_SRGB_BLOCK` `vkFormat`
-  and the sRGB transfer function);
-- no supercompression: a file with Zstandard or BasisLZ is refused with
-  `Ktx2Error::Supercompression`, as are arrays, cubemaps, 3D textures and
-  other formats;
-- the writer records `KTXorientation` = `rd` and `KTXwriter`, levels
-  smallest first, each aligned to 16 bytes. The reader refuses any other
-  orientation, since read as stored the image would come out flipped.
+- **formats**: UASTC (`vkFormat` UNDEFINED with a UASTC data format
+  descriptor, every channel id), **BC7**, **ASTC 4×4** and **RGBA8**, linear
+  or sRGB, each with its descriptor sample by sample, premultiplied alpha
+  included;
+- **texture types**: 1D (RGBA8), 2D, 3D, arrays, cubemaps and cubemap
+  arrays, any number of mips, or `levelCount` 0 (`generate_mips`, RGBA8);
+  `Texture::image` cuts one layer, face and depth slice out of a level;
+- **supercompression**: none, **Zstandard** and **ZLIB**, level by level
+  (`Supercompression`, pure Rust: `ruzstd` and `miniz_oxide`);
+- **key/value data**: `KTXorientation` (`r`, `rd`, `rdi`: a file whose texels
+  do not start at the top left is refused, since read as stored it would
+  come out flipped), `KTXwriter`, and every other pair kept as it is
+  (`key_values`), written sorted.
+
+What it does not read is refused with an error that names it: ETC1S and its
+BasisLZ supercompression, 3D arrays (which KTX 2.0 does not define), and
+other `vkFormat`s.
 
 ```rust
-use texcomp::ktx2::{self, Format, Texture, UastcChannels};
+use texcomp::ktx2::{self, Format, Supercompression, Texture, UastcChannels};
 
 /// A UASTC tile served as a file, then read back and made BC7.
 fn round_trip(levels: Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
-    let tile = Texture {
-        format: Format::Uastc(UastcChannels::Rgb),
-        srgb: true,
-        width: 256,
-        height: 256,
-        levels, // level 0 first, each its 16-byte blocks row by row
-    };
+    // Level 0 first, each its 16-byte blocks row by row.
+    let mut tile = Texture::new(Format::Uastc(UastcChannels::Rgb), true, 256, 256, levels);
+    tile.supercompression = Supercompression::Zstd;
     let file = ktx2::write(&tile)?; // served as ktx2::MEDIA_TYPE, image/ktx2
     let back = ktx2::read(&file)?;
     let mut bc7 = Vec::new();
@@ -277,11 +339,22 @@ fn round_trip(levels: Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, Box<dyn std::error::
 ```
 
 The reader validates every size and offset against the file and never
-panics (`tests/ktx2.rs` truncates and corrupts files by the thousand). It
-reads upstream Basis Universal's KTX 2.0 files, whose every level then
-transcodes bit-exact to upstream's; the files the writer makes pass the
-Khronos `ktx validate` with no warning and upstream's `-unpack`
-(`tests/fixtures/ktx2`).
+panics (`tests/ktx2.rs` and `tests/ktx2_complete.rs` truncate and corrupt
+files by the thousand, supercompressed ones included). Three outside
+parties check it:
+
+- an independent reader, the `ktx2` crate, reads every file the writer
+  makes, for every type, format and scheme, to the same header, levels,
+  descriptor and pairs;
+- KTX-Software's own files (RGBA8 2D, array with mips, 3D, UASTC with
+  Zstandard; `tests/fixtures/ktx2/khronos`) read to their shapes and texels,
+  and upstream Basis Universal's files transcode bit-exact;
+- with `TEXCOMP_KTX` naming the Khronos `ktx` tool (KTX-Software 4.4.2),
+  `ktx validate` passes every file written, `ktx extract` (libktx, the
+  reference Zstandard and ZLIB) reads every image of them as `Texture::image`
+  holds it, and libktx's Basis transcoder turns real UASTC blocks into the
+  BC7 and ASTC blocks this crate transcodes to. `TEXCOMP_REQUIRE_KTX=1`
+  makes the tool's absence a failure.
 
 ## Features
 
@@ -297,13 +370,15 @@ Without `gpu` the crate depends on nothing GPU-related.
 
 ## Status
 
-- **Done**: the GPU encoders (BC7, ASTC 4×4), their quality gate, the
+- **Done**: the GPU encoders (BC7 in all eight modes, ASTC 4×4 with one or
+  two partitions and planes), `Quality`, their quality gate and oracle, the
   pacing API (`tile_cost`, `EncoderScratch`, pass timestamps), and
   `encode_into` (caller's textures and layers, sources on the GPU); on the CPU,
   the UASTC encoder at effort levels 0–2, UASTC decode and UASTC to ASTC 4×4
-  and BC7, all byte-identical to upstream; KTX 2.0 read and write (UASTC,
-  BC7, ASTC 4×4, no supercompression).
-- **Next**: Zstandard supercompression in KTX 2.0.
+  and BC7, all byte-identical to upstream; KTX 2.0 read and write, the
+  whole container (every texture type, UASTC, BC7, ASTC 4×4, RGBA8,
+  Zstandard and ZLIB).
+- **Not done**: ETC1S/BasisLZ in KTX 2.0 (refused).
 
 ## Licence
 
