@@ -17,6 +17,10 @@ gpu = ["dep:wgpu", "dep:bytemuck"]
 
 [dependencies]
 thiserror = "2.0.18"
+# KTX 2.0 supercompression, pure Rust (wasm-clean): Zstandard (scheme 2) and
+# ZLIB (scheme 3).
+ruzstd = "0.8.2"
+miniz_oxide = "0.8.9"
 # The same major as tuile's. No default features: the application that links
 # this picks its backends; only the WGSL front end is needed here.
 wgpu = { version = "30.0.1", default-features = false, features = ["wgsl"], optional = true }
@@ -34,6 +38,9 @@ palette = { version = "0.7.6", default-features = false, features = ["std"] }
 # The test oracle: an independent software decoder of BC7 and ASTC, which
 # every block the encoders write must decode through as they predict.
 texture2ddecoder = "0.1.2"
+# A KTX 2.0 reader written independently of this crate, an oracle for the
+# files the writer makes.
+ktx2 = "0.5.0"
 
 [[test]]
 name = "gpu_quality"

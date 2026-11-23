@@ -27,8 +27,8 @@
 //!
 //! # What it does not cover
 //!
-//! Supercompressed files (refused), arrays, cubemaps and 3D textures
-//! (refused), and other `vkFormat`s.
+//! Supercompression, RGBA8, arrays, cubemaps and 3D textures, the Khronos
+//! tool and the KTX-Software files: `tests/ktx2_complete.rs`.
 
 use std::path::{Path, PathBuf};
 
@@ -76,13 +76,7 @@ fn texture(format: Format, srgb: bool, width: u32, height: u32, seed: u64) -> Te
         w = (w / 2).max(1);
         h = (h / 2).max(1);
     }
-    Texture {
-        format,
-        srgb,
-        width,
-        height,
-        levels,
-    }
+    Texture::new(format, srgb, width, height, levels)
 }
 
 const FORMATS: [(Format, bool); 9] = [
@@ -328,13 +322,13 @@ fn upstream_blocks_through_the_container_transcode_bit_exact() {
         for name in names {
             let stem = uastc_fixtures().join(format!("level{level}/{name}"));
             let blocks = slurp(&stem.with_extension("uastc"));
-            let t = Texture {
-                format: Format::Uastc(UastcChannels::Rgba),
-                srgb: true,
-                width: 256,
-                height: 256,
-                levels: vec![blocks],
-            };
+            let t = Texture::new(
+                Format::Uastc(UastcChannels::Rgba),
+                true,
+                256,
+                256,
+                vec![blocks],
+            );
             let back = ktx2::read(&ktx2::write(&t).expect("writes")).expect("reads");
             assert_eq!(back, t);
             let astc = transcode(&back, uastc::transcode_to_astc_4x4);
@@ -399,6 +393,12 @@ fn ours(name: &str) -> Vec<(String, Texture)> {
         &ktx2_fixtures().join(format!("upstream/{name}.ktx2")),
     ))
     .expect("reads");
+    // Upstream's own pair (a custom key `ktx validate` warns about) is kept
+    // by the reader; the cross-check files were written without it.
+    let up = Texture {
+        key_values: Vec::new(),
+        ..up
+    };
     let mut out = vec![(format!("{name}-uastc"), up.clone())];
     for (fmt, to, tag) in [
         (
@@ -521,18 +521,33 @@ fn corrupt_files_give_their_error() {
     };
     assert_eq!(case(&|g| g[5] = b'1'), Err(Ktx2Error::Identifier));
     assert_eq!(case(&|g| g.truncate(11)), Err(Ktx2Error::Identifier));
-    assert_eq!(
-        case(&|g| poke32(g, SCHEME, 2)),
-        Err(Ktx2Error::Supercompression(2))
-    );
+    // Levels stored plain, read as Zstandard or ZLIB: not their streams.
+    for scheme in [2, 3] {
+        assert!(
+            matches!(
+                case(&|g| poke32(g, SCHEME, scheme)),
+                Err(Ktx2Error::Level { level: 0, .. })
+            ),
+            "scheme {scheme}"
+        );
+    }
     assert_eq!(
         case(&|g| poke32(g, SCHEME, 1)),
         Err(Ktx2Error::Supercompression(1))
     );
     assert_eq!(
-        case(&|g| poke32(g, VK_FORMAT, 37)),
-        Err(Ktx2Error::VkFormat(37))
+        case(&|g| poke32(g, SCHEME, 4)),
+        Err(Ktx2Error::Supercompression(4))
     );
+    // BC1, a format not read; RGBA8 with a UASTC descriptor.
+    assert_eq!(
+        case(&|g| poke32(g, VK_FORMAT, 131)),
+        Err(Ktx2Error::VkFormat(131))
+    );
+    assert!(matches!(
+        case(&|g| poke32(g, VK_FORMAT, 37)),
+        Err(Ktx2Error::Dfd(_))
+    ));
     assert!(matches!(
         case(&|g| poke32(g, TYPE_SIZE, 4)),
         Err(Ktx2Error::Header(_))
@@ -541,17 +556,27 @@ fn corrupt_files_give_their_error() {
         case(&|g| poke32(g, PIXEL_WIDTH, 0)),
         Err(Ktx2Error::Header(_))
     ));
-    assert!(matches!(
+    // A 3D texture or an array whose levels hold one image: a 3D texture's
+    // orientation is "rdi", and the level index's sizes are wrong for both.
+    assert_eq!(
         case(&|g| poke32(g, PIXEL_DEPTH, 4)),
-        Err(Ktx2Error::Unsupported(_))
-    ));
+        Err(Ktx2Error::Orientation("rd".into()))
+    );
     assert!(matches!(
         case(&|g| poke32(g, LAYER_COUNT, 2)),
-        Err(Ktx2Error::Unsupported(_))
+        Err(Ktx2Error::Level { level: 0, .. })
     ));
     assert!(matches!(
-        case(&|g| poke32(g, FACE_COUNT, 6)),
+        case(&|g| {
+            poke32(g, PIXEL_DEPTH, 4);
+            poke32(g, LAYER_COUNT, 2);
+        }),
         Err(Ktx2Error::Unsupported(_))
+    ));
+    // 20×12 faces are not square.
+    assert!(matches!(
+        case(&|g| poke32(g, FACE_COUNT, 6)),
+        Err(Ktx2Error::Header(_))
     ));
     assert!(matches!(
         case(&|g| poke32(g, FACE_COUNT, 2)),
