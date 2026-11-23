@@ -31,6 +31,9 @@ pollster = "0.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 # CIEDE2000 for the quality gate.
 palette = { version = "0.7.6", default-features = false, features = ["std"] }
+# The test oracle: an independent software decoder of BC7 and ASTC, which
+# every block the encoders write must decode through as they predict.
+texture2ddecoder = "0.1.2"
 
 [[test]]
 name = "gpu_quality"
@@ -50,6 +53,10 @@ required-features = ["gpu"]
 
 [[example]]
 name = "uastc-speed"
+
+[[example]]
+name = "quality-report"
+required-features = ["gpu"]
 
 [lints.rust]
 unsafe_code = "forbid"
