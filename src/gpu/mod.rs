@@ -22,6 +22,11 @@ use std::borrow::Cow;
 
 use crate::BlockFormat;
 
+mod quality;
+mod tables;
+
+pub use quality::Quality;
+
 /// The formats the kernels write.
 pub const GPU_FORMATS: [BlockFormat; 2] = [BlockFormat::Bc7, BlockFormat::Astc4x4];
 
@@ -288,6 +293,7 @@ pub enum EncodeError {
 /// that first samples it can share a submission.
 pub struct GpuEncoder {
     format: BlockFormat,
+    quality: Quality,
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
     uniform_align: u64,
@@ -320,9 +326,17 @@ struct Placed {
 }
 
 impl GpuEncoder {
-    /// Compiles the encoder for `format`.
+    /// Compiles the encoder for `format` at [`Quality::DEFAULT`].
     pub fn new(device: &wgpu::Device, format: BlockFormat) -> Self {
-        let source = shader_source(format);
+        Self::with_quality(device, format, Quality::DEFAULT)
+    }
+
+    /// Compiles the encoder for `format` at `quality` (clamped to its
+    /// bounds). Each quality is its own kernel: build one encoder per
+    /// device, format and quality.
+    pub fn with_quality(device: &wgpu::Device, format: BlockFormat, quality: Quality) -> Self {
+        let quality = quality.clamped();
+        let source = shader_source(format, quality);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tuile block encoder"),
             source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
@@ -370,6 +384,7 @@ impl GpuEncoder {
         let limits = device.limits();
         Self {
             format,
+            quality,
             pipeline,
             layout,
             uniform_align: limits.min_uniform_buffer_offset_alignment.max(32) as u64,
@@ -380,6 +395,11 @@ impl GpuEncoder {
     /// The format this encoder writes.
     pub fn format(&self) -> BlockFormat {
         self.format
+    }
+
+    /// The quality this encoder was compiled at, clamped.
+    pub fn quality(&self) -> Quality {
+        self.quality
     }
 
     /// Encodes each tile's mip chain into a new texture, recording one
@@ -1178,43 +1198,25 @@ fn validate_source(l: usize, level: &SourceLevel<'_>) -> Result<(), EncodeError>
     Ok(())
 }
 
-/// The format's kernel: the shared part, the generated tables, the format.
-fn shader_source(format: BlockFormat) -> String {
+/// The format's kernel at `quality`: the generated constants, the shared
+/// part, the format's own.
+fn shader_source(format: BlockFormat, quality: Quality) -> String {
     let common = include_str!("common.wgsl");
+    let q = quality.clamped();
     match format {
-        BlockFormat::Bc7 => format!("{common}\n{}", include_str!("bc7.wgsl")),
-        BlockFormat::Astc4x4 => {
-            format!("{common}\n{}\n{}", astc_tables(), include_str!("astc.wgsl"))
-        }
+        BlockFormat::Bc7 => format!(
+            "{}{}\n{common}\n{}",
+            tables::quality(q),
+            tables::bc7(),
+            include_str!("bc7.wgsl")
+        ),
+        BlockFormat::Astc4x4 => format!(
+            "{}{}\n{common}\n{}",
+            tables::quality(q),
+            tables::astc(q.mode_tier),
+            include_str!("astc.wgsl")
+        ),
     }
-}
-
-/// `TRIT_ENC`, `Q12` and `Q6` for `astc.wgsl`, as WGSL constants.
-fn astc_tables() -> String {
-    let list = |v: &[u32]| {
-        v.iter()
-            .map(|x| format!("{x}u"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let floats = |v: &[u32]| {
-        v.iter()
-            .map(|x| format!("{x}.0"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let q12: Vec<u32> = (0..12)
-        .map(|v| crate::astc::unquantize_weight(v, 1, 2))
-        .collect();
-    let q6: Vec<u32> = (0..6)
-        .map(|v| crate::astc::unquantize_weight(v, 1, 1))
-        .collect();
-    format!(
-        "const TRIT_ENC = array<u32, 243>({});\nconst Q12 = array<f32, 12>({});\nconst Q6 = array<f32, 6>({});\n",
-        list(&crate::astc::trit_encodings()),
-        floats(&q12),
-        floats(&q6),
-    )
 }
 
 #[cfg(test)]
@@ -1325,7 +1327,9 @@ mod tests {
         }
         // The kernels as compiled, with their generated tables.
         for format in BlockFormat::PREFERENCE {
-            assert!(texture_lets(&shader_source(format)).is_empty());
+            for level in 0..=Quality::MAX_LEVEL {
+                assert!(texture_lets(&shader_source(format, Quality::level(level))).is_empty());
+            }
         }
     }
 
@@ -1375,16 +1379,19 @@ mod tests {
     /// runs, with the capabilities a compute device has.
     #[test]
     fn every_kernel_validates() {
-        for format in BlockFormat::PREFERENCE {
-            let source = shader_source(format);
+        for (format, level) in BlockFormat::PREFERENCE
+            .into_iter()
+            .flat_map(|f| (0..=Quality::MAX_LEVEL).map(move |l| (f, l)))
+        {
+            let source = shader_source(format, Quality::level(level));
             let module = naga::front::wgsl::parse_str(&source)
-                .unwrap_or_else(|e| panic!("{format:?}: {}", e.emit_to_string(&source)));
+                .unwrap_or_else(|e| panic!("{format:?} {level}: {}", e.emit_to_string(&source)));
             naga::valid::Validator::new(
                 naga::valid::ValidationFlags::all(),
                 naga::valid::Capabilities::empty(),
             )
             .validate(&module)
-            .unwrap_or_else(|e| panic!("{format:?}: {}", e.emit_to_string(&source)));
+            .unwrap_or_else(|e| panic!("{format:?} {level}: {}", e.emit_to_string(&source)));
         }
     }
 

@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use quality::*;
-use texcomp::gpu::GpuEncoder;
+use texcomp::gpu::{GpuEncoder, Quality};
 use texcomp::BlockFormat;
 
 /// Scores of one tile at one setting.
@@ -113,19 +113,32 @@ const AB: [(&str, u32, u32); 3] = [
 struct Run {
     scores: Vec<TileScore>,
     kinds: Kinds,
-    ms_per_tile: Option<f64>,
+    ms_per_tile: Option<(f64, f64)>,
     /// Largest difference, any texel, any channel, between the oracle's
     /// decode and the GPU's.
     oracle_vs_gpu: u8,
 }
 
-fn encoder_for(gpu: &Gpu, format: BlockFormat, setting: &str) -> GpuEncoder {
-    let _ = setting;
-    GpuEncoder::new(&gpu.device, format)
+/// The settings measured: `level N` for [`Quality::level`], or the fields
+/// written out (`tier,k,iters,luma`).
+fn quality_of(setting: &str) -> Quality {
+    if let Some(n) = setting.strip_prefix("level ") {
+        return Quality::level(n.parse().expect("a level"));
+    }
+    let v: Vec<u32> = setting
+        .split(',')
+        .map(|x| x.trim().parse().expect("tier,k,iters,luma"))
+        .collect();
+    Quality {
+        mode_tier: v[0],
+        partition_candidates: v[1],
+        refine_iterations: v[2],
+        luma_weighting: v[3],
+    }
 }
 
-fn settings() -> Vec<String> {
-    vec!["default".into()]
+fn encoder_for(gpu: &Gpu, format: BlockFormat, setting: &str) -> GpuEncoder {
+    GpuEncoder::with_quality(&gpu.device, format, quality_of(setting))
 }
 
 fn run_gpu(
@@ -159,7 +172,7 @@ fn run_gpu(
         if let Some(dir) = out {
             for (name, x, y) in AB {
                 if tile.name == name {
-                    let path = dir.join(format!("{name}-{format:?}-{setting}.png").to_lowercase());
+                    let path = dir.join(format!("{name}-{format:?}-{}.png", setting.replace([' ', ','], "-")).to_lowercase());
                     ab_sheet(&path, &tile.chain[0], &decoded[0], x, y);
                 }
             }
@@ -214,7 +227,7 @@ fn min(v: impl Iterator<Item = f64>) -> f64 {
     v.fold(f64::INFINITY, f64::min)
 }
 
-fn summary_row(label: &str, s: &[TileScore], ms: Option<f64>) -> String {
+fn summary_row(label: &str, s: &[TileScore], ms: Option<(f64, f64)>) -> String {
     format!(
         "| {label} | {:.2} | {:.2} | {:.4} | {:.2} | {:.2} | {:.4} | {} |",
         mean(s.iter().map(|t| t.psnr_rgb)),
@@ -223,7 +236,7 @@ fn summary_row(label: &str, s: &[TileScore], ms: Option<f64>) -> String {
         min(s.iter().map(|t| t.psnr_rgb)),
         mean(s.iter().map(|t| t.chain_psnr_rgb)),
         min(s.iter().map(|t| t.ssim_y)),
-        ms.map_or("–".into(), |m| format!("{m:.2}")),
+        ms.map_or("–".into(), |(gpu, wall)| format!("{gpu:.1} ({wall:.1})")),
     )
 }
 
@@ -231,10 +244,20 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let mut out = None;
     let mut cpu = true;
+    let mut settings: Vec<String> = (0..=Quality::MAX_LEVEL).map(|l| format!("level {l}")).collect();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--out" => out = args.next().map(std::path::PathBuf::from),
             "--no-cpu" => cpu = false,
+            // Settings to measure, `;`-separated: `level 2;2,6,4,50`.
+            "--settings" => {
+                settings = args
+                    .next()
+                    .expect("settings")
+                    .split(';')
+                    .map(str::to_owned)
+                    .collect()
+            }
             other => panic!("unknown argument {other}"),
         }
     }
@@ -245,14 +268,14 @@ fn main() {
     println!("Adapter: {:?}\n", gpu.adapter.get_info().name);
     let aerial = aerial_tiles();
     let nasa = nasa_tiles();
-    let header = "| Setting | PSNR RGB | PSNR Y | SSIM Y | worst PSNR RGB | chain PSNR RGB | worst SSIM Y | GPU ms / tile |\n|---|---|---|---|---|---|---|---|";
+    let header = "| Setting | PSNR RGB | PSNR Y | SSIM Y | worst PSNR RGB | chain PSNR RGB | worst SSIM Y | ms / tile: GPU (wall) |\n|---|---|---|---|---|---|---|---|";
     for format in formats(&gpu) {
         for (set_name, tiles) in [("IGN aerial (6)", &aerial), ("NASA (20)", &nasa)] {
             println!("## {format:?}, {set_name}\n\n{header}");
             let mut per_tile = Vec::new();
             let mut kinds_all = Vec::new();
-            for setting in settings() {
-                let run = run_gpu(&gpu, format, &setting, tiles, out.as_deref());
+            for setting in &settings {
+                let run = run_gpu(&gpu, format, setting, tiles, out.as_deref());
                 println!("{}", summary_row(&setting, &run.scores, run.ms_per_tile));
                 assert!(
                     run.oracle_vs_gpu <= 1,
@@ -260,7 +283,7 @@ fn main() {
                     run.oracle_vs_gpu
                 );
                 per_tile.push((setting.clone(), run.scores));
-                kinds_all.push((setting, run.kinds));
+                kinds_all.push((setting.clone(), run.kinds));
             }
             if cpu {
                 use texcomp::uastc::Level;

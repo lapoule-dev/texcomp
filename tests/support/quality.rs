@@ -322,14 +322,16 @@ pub fn encode(gpu: &Gpu, encoder: &GpuEncoder, tiles: &[Tile], srgb: bool) -> Ve
     textures
 }
 
-/// GPU time of the encode pass for `tiles`, in milliseconds per tile: the
-/// median of `runs` calls after one warm-up. `None` without timestamps.
+/// GPU time of the encode pass for `tiles`, from timestamps, and wall
+/// time of the call to the GPU's completion (upload included), each in
+/// milliseconds per tile: the medians of `runs` calls after one warm-up.
+/// `None` without timestamps.
 pub fn kernel_ms_per_tile(
     gpu: &Gpu,
     encoder: &GpuEncoder,
     tiles: &[Tile],
     runs: usize,
-) -> Option<f64> {
+) -> Option<(f64, f64)> {
     if !gpu.device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
         return None;
     }
@@ -355,7 +357,9 @@ pub fn kernel_ms_per_tile(
     let refs: Vec<&[Level<'_>]> = levels.iter().map(Vec::as_slice).collect();
     let mut scratch = texcomp::gpu::EncoderScratch::new();
     let mut times = Vec::new();
+    let mut walls = Vec::new();
     for run in 0..=runs {
+        let start = std::time::Instant::now();
         let mut cmd = device.create_command_encoder(&Default::default());
         let out = encoder.encode_with(
             &mut scratch,
@@ -382,12 +386,14 @@ pub fn kernel_ms_per_tile(
         let ticks: Vec<u64> = bytemuck::cast_slice(&slice.get_mapped_range().expect("mapped")).to_vec();
         read.unmap();
         if run > 0 {
+            walls.push(start.elapsed().as_secs_f64() * 1e3 / tiles.len() as f64);
             let ns = ticks[1].saturating_sub(ticks[0]) as f64 * gpu.queue.get_timestamp_period() as f64;
             times.push(ns / 1e6 / tiles.len() as f64);
         }
     }
     times.sort_by(f64::total_cmp);
-    Some(times[times.len() / 2])
+    walls.sort_by(f64::total_cmp);
+    Some((times[times.len() / 2], walls[walls.len() / 2]))
 }
 
 fn read_buffer(gpu: &Gpu, buffer: &wgpu::Buffer) -> Vec<u8> {

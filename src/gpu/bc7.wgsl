@@ -1,177 +1,184 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) lapoule.dev
 
-// BC7, two of its eight modes (Khronos Data Format Specification 1.3, §21):
+// BC7 (Khronos Data Format Specification 1.3, §21), all eight modes:
 //
-// - mode 6: one subset, RGBA endpoints of 7 bits plus a p-bit each, 4-bit
-//   indices. Smooth blocks, and every block with alpha.
-// - mode 1: two subsets out of 64 partitions, RGB endpoints of 6 bits plus a
-//   p-bit shared per subset, 3-bit indices. Blocks across an edge.
+// | Mode | Subsets | Partitions | Endpoints | p-bits | Indices |
+// |---|---|---|---|---|---|
+// | 0 | 3 | 16 | RGB 4 | one per endpoint | 3 bits |
+// | 1 | 2 | 64 | RGB 6 | one per subset | 3 bits |
+// | 2 | 3 | 64 | RGB 5 | none | 2 bits |
+// | 3 | 2 | 64 | RGB 7 | one per endpoint | 2 bits |
+// | 4 | 1 | – | RGB 5, A 6, rotation | none | 2 and 3 bits, either way |
+// | 5 | 1 | – | RGB 7, A 8, rotation | none | 2 and 2 bits |
+// | 6 | 1 | – | RGBA 7 | one per endpoint | 4 bits |
+// | 7 | 2 | 64 | RGBA 5 | one per endpoint | 2 bits |
 //
-// An opaque block is fitted both ways and keeps the lower error; a block with
-// alpha takes mode 6. The partition for mode 1 is picked by an estimate (the
-// variance each subset leaves off its principal axis), then fitted fully.
+// Which modes a block tries is the quality's `TIER` (see `Quality`); a
+// block with alpha tries only the modes that store it (4 to 7). Partitioned
+// modes fit the `K` partitions that a moment estimate ranks best. Every fit
+// quantises the endpoints, assigns indices and refits by least squares,
+// `ITERS` times. The block keeps the encoding of least weighted error.
+//
+// Generated before this file: `P2`, `A2`, `P3`, `A3` (the partition and
+// anchor tables) and the quality constants.
 
-// Table 119: the interpolation factors of 4-bit and 3-bit indices.
-const W4 = array<f32, 16>(0.0, 4.0, 9.0, 13.0, 17.0, 21.0, 26.0, 30.0, 34.0, 38.0, 43.0, 47.0, 51.0, 55.0, 60.0, 64.0);
+// Table 119: the interpolation factors of 2-, 3- and 4-bit indices.
+const W2 = array<f32, 4>(0.0, 21.0, 43.0, 64.0);
 const W3 = array<f32, 8>(0.0, 9.0, 18.0, 27.0, 37.0, 46.0, 55.0, 64.0);
+const W4 = array<f32, 16>(0.0, 4.0, 9.0, 13.0, 17.0, 21.0, 26.0, 30.0, 34.0, 38.0, 43.0, 47.0, 51.0, 55.0, 60.0, 64.0);
 
-// Table 114: the 2-subset partitions; bit i is texel i's subset.
-const PARTITIONS = array<u32, 64>(
-    0xcccc, 0x8888, 0xeeee, 0xecc8, 0xc880, 0xfeec, 0xfec8, 0xec80,
-    0xc800, 0xffec, 0xfe80, 0xe800, 0xffe8, 0xff00, 0xfff0, 0xf000,
-    0xf710, 0x008e, 0x7100, 0x08ce, 0x008c, 0x7310, 0x3100, 0x8cce,
-    0x088c, 0x3110, 0x6666, 0x366c, 0x17e8, 0x0ff0, 0x718e, 0x399c,
-    0xaaaa, 0xf0f0, 0x5a5a, 0x33cc, 0x3c3c, 0x55aa, 0x9696, 0xa55a,
-    0x73ce, 0x13c8, 0x324c, 0x3bdc, 0x6996, 0xc33c, 0x9966, 0x0660,
-    0x0272, 0x04e4, 0x4e40, 0x2720, 0xc936, 0x936c, 0x39c6, 0x639c,
-    0x9336, 0x9cc6, 0x817e, 0xe718, 0xccf0, 0x0fcc, 0x7744, 0xee22,
-);
+const BIG: f32 = 3.4e38;
 
-// Table 118: the anchor texel of the second subset.
-const ANCHOR2 = array<u32, 64>(
-    15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u, 15u,
-    15u, 2u, 8u, 2u, 2u, 8u, 8u, 15u, 2u, 8u, 2u, 2u, 8u, 8u, 2u, 2u,
-    15u, 15u, 6u, 8u, 2u, 8u, 15u, 15u, 2u, 8u, 2u, 2u, 2u, 15u, 15u, 6u,
-    6u, 2u, 6u, 8u, 15u, 15u, 2u, 2u, 15u, 15u, 15u, 15u, 15u, 2u, 2u, 15u,
-);
+fn index_weight(ibits: u32, k: u32) -> f32 {
+    if (ibits == 2u) {
+        return W2[k & 3u];
+    }
+    if (ibits == 3u) {
+        return W3[k & 7u];
+    }
+    return W4[k & 15u];
+}
 
-const RGBA = vec4f(1.0, 1.0, 1.0, 1.0);
-const RGB = vec4f(1.0, 1.0, 1.0, 0.0);
+fn set_weights(ibits: u32) {
+    wn = 1u << ibits;
+    for (var k = 0u; k < wn; k++) {
+        wt[k] = index_weight(ibits, k);
+    }
+    let base = (ibits - 2u) * 65u;
+    for (var v = 0u; v < 65u; v++) {
+        wsel[v] = WSEL[base + v];
+    }
+}
 
-// --- mode 6 -----------------------------------------------------------------
+// --- endpoints --------------------------------------------------------------
 
-// The 7-bit codes and p-bit nearest an endpoint, and what they decode to.
-struct Q6 {
+// An endpoint of `b` stored bits (code and p-bit) widens to 8 by repeating
+// its top bits.
+fn expand(v: u32, b: u32) -> u32 {
+    return (v << (8u - b)) | (v >> (2u * b - 8u));
+}
+
+// The `n`-bit code (with p-bit `p` below it when `has_p`) whose widened
+// value is nearest `e`: x = code, y = the value.
+fn quant_channel(e: f32, n: u32, has_p: bool, p: u32) -> vec2u {
+    let b = n + select(0u, 1u, has_p);
+    let maxc = i32((1u << n) - 1u);
+    let ideal = e * f32((1u << b) - 1u) / 255.0;
+    var guess: i32;
+    if (has_p) {
+        guess = i32(floor((ideal - f32(p)) / 2.0));
+    } else {
+        guess = i32(floor(ideal));
+    }
+    var best = vec2u(0u, 0u);
+    var best_d = BIG;
+    for (var c = guess - 1; c <= guess + 2; c++) {
+        let code = u32(clamp(c, 0, maxc));
+        var v = code;
+        if (has_p) {
+            v = (code << 1u) | p;
+        }
+        let value = expand(v, b);
+        let d = abs(f32(value) - e);
+        if (d < best_d) {
+            best_d = d;
+            best = vec2u(code, value);
+        }
+    }
+    return best;
+}
+
+struct Ep {
     code: vec4u,
     p: u32,
     value: vec4f,
 }
 
-// The p-bit is shared by the four channels. An opaque block weighs alpha so
-// that its alpha stays exactly 255: an opaque tile must not turn 254.
-fn quantize6(e: vec4f, weights: vec4f) -> Q6 {
-    var best = Q6(vec4u(0u), 0u, vec4f(0.0));
-    var best_err = 3.4e38;
-    for (var p = 0u; p < 2u; p++) {
-        let pf = f32(p);
-        let q = clamp(round((e - pf) / 2.0), vec4f(0.0), vec4f(127.0));
-        let v = 2.0 * q + pf;
-        let d = e - v;
-        let err = dot(d * d, weights);
-        if (err < best_err) {
-            best_err = err;
-            best = Q6(vec4u(q), p, v);
-        }
+// An endpoint quantised to `cb` bits of colour and `ab` of alpha (0: no
+// alpha stored, it decodes to 255), with p-bit `p` when `has_p`.
+fn quant_ep(e: vec4f, cb: u32, ab: u32, has_p: bool, p: u32) -> Ep {
+    var out = Ep(vec4u(0u), p, vec4f(255.0));
+    for (var c = 0u; c < 3u; c++) {
+        let q = quant_channel(e[c], cb, has_p, p);
+        out.code[c] = q.x;
+        out.value[c] = f32(q.y);
     }
-    return best;
+    if (ab > 0u) {
+        let q = quant_channel(e.a, ab, has_p, p);
+        out.code.w = q.x;
+        out.value.w = f32(q.y);
+    }
+    return out;
 }
 
-var<private> m6_lo: Q6;
-var<private> m6_hi: Q6;
+fn ep_error(q: Ep, e: vec4f, w: vec4f) -> f32 {
+    let d = q.value - e;
+    return dot(d * d, w);
+}
 
-fn fit6(weights: vec4f) -> f32 {
-    wt = array<f32, 16>(W4[0], W4[1], W4[2], W4[3], W4[4], W4[5], W4[6], W4[7], W4[8], W4[9], W4[10], W4[11], W4[12], W4[13], W4[14], W4[15]);
-    wn = 16u;
-    var seg = pca_segment(ALL, RGBA);
-    var best = 3.4e38;
-    for (var it = 0; it < 3; it++) {
-        let lo = quantize6(seg.e0, weights);
-        let hi = quantize6(seg.e1, weights);
-        let err = assign(lo.value, hi.value, ALL);
+// --- subsets ----------------------------------------------------------------
+
+// The endpoints kept per subset.
+var<private> s_lo: array<Ep, 3>;
+var<private> s_hi: array<Ep, 3>;
+
+// p-bit kinds.
+const P_NONE: u32 = 0u;
+const P_SHARED: u32 = 1u;
+const P_UNIQUE: u32 = 2u;
+
+// Fits subset `s` (its texels `members`) with endpoints of `cb` colour and
+// `ab` alpha bits and p-bits of kind `pk`, with the index weights already
+// set. Returns its weighted squared error; keeps its endpoints in
+// `s_lo[s]`, `s_hi[s]` and its indices in `best_idx`. Without alpha bits,
+// alpha is neither fitted nor counted.
+fn fit_subset(members: u32, s: u32, cb: u32, ab: u32, pk: u32) -> f32 {
+    var w = ew;
+    if (ab == 0u) {
+        w.a = 0.0;
+    }
+    var seg = pca_segment(members, w);
+    var best = BIG;
+    for (var it = 0u; it < ITERS; it++) {
+        var lo: Ep;
+        var hi: Ep;
+        if (pk == P_NONE) {
+            lo = quant_ep(seg.e0, cb, ab, false, 0u);
+            hi = quant_ep(seg.e1, cb, ab, false, 0u);
+        } else {
+            let l0 = quant_ep(seg.e0, cb, ab, true, 0u);
+            let h0 = quant_ep(seg.e1, cb, ab, true, 0u);
+            let l1 = quant_ep(seg.e0, cb, ab, true, 1u);
+            let h1 = quant_ep(seg.e1, cb, ab, true, 1u);
+            let el0 = ep_error(l0, seg.e0, w);
+            let el1 = ep_error(l1, seg.e0, w);
+            let eh0 = ep_error(h0, seg.e1, w);
+            let eh1 = ep_error(h1, seg.e1, w);
+            if (pk == P_SHARED) {
+                if (el1 + eh1 < el0 + eh0) {
+                    lo = l1;
+                    hi = h1;
+                } else {
+                    lo = l0;
+                    hi = h0;
+                }
+            } else {
+                lo = l0;
+                if (el1 < el0) {
+                    lo = l1;
+                }
+                hi = h0;
+                if (eh1 < eh0) {
+                    hi = h1;
+                }
+            }
+        }
+        let err = assign(lo.value, hi.value, members, w);
         if (err < best) {
             best = err;
-            m6_lo = lo;
-            m6_hi = hi;
-            keep_indices(ALL);
-        }
-        seg = refine(ALL, seg);
-    }
-    return best;
-}
-
-fn pack6() {
-    var lo = m6_lo;
-    var hi = m6_hi;
-    // Texel 0 is the anchor: its index's top bit is implied 0.
-    if (best_idx[0] >= 8u) {
-        let t = lo;
-        lo = hi;
-        hi = t;
-        for (var i = 0u; i < 16u; i++) {
-            best_idx[i] = 15u - best_idx[i];
-        }
-    }
-    put(0u, 7u, 64u);
-    for (var c = 0u; c < 4u; c++) {
-        put(7u + 14u * c, 7u, lo.code[c]);
-        put(14u + 14u * c, 7u, hi.code[c]);
-    }
-    put(63u, 1u, lo.p);
-    put(64u, 1u, hi.p);
-    put(65u, 3u, best_idx[0]);
-    for (var i = 1u; i < 16u; i++) {
-        put(68u + 4u * (i - 1u), 4u, best_idx[i]);
-    }
-}
-
-// --- mode 1 -----------------------------------------------------------------
-
-// A 6-bit code with p-bit decodes to (code << 1 | p) widened from 7 to 8 bits.
-fn expand1(q: vec3f, p: f32) -> vec3f {
-    let v7 = 2.0 * q + p;
-    return 2.0 * v7 + floor(v7 / 64.0);
-}
-
-struct Q1 {
-    lo: vec3u,
-    hi: vec3u,
-    p: u32,
-    lo_value: vec4f,
-    hi_value: vec4f,
-}
-
-fn nearest1(e: vec3f, p: f32) -> vec3f {
-    // Two candidates per channel bracket the ideal code; take the nearer.
-    let guess = clamp(floor((e * 127.0 / 255.0 - p) / 2.0), vec3f(0.0), vec3f(63.0));
-    let up = min(guess + 1.0, vec3f(63.0));
-    let dg = abs(expand1(guess, p) - e);
-    let du = abs(expand1(up, p) - e);
-    return select(guess, up, du < dg);
-}
-
-// One subset's endpoints share a p-bit: both values tried.
-fn quantize1(s: Segment) -> Q1 {
-    var best: Q1;
-    var best_err = 3.4e38;
-    for (var p = 0u; p < 2u; p++) {
-        let pf = f32(p);
-        let lo = nearest1(s.e0.rgb, pf);
-        let hi = nearest1(s.e1.rgb, pf);
-        let lv = expand1(lo, pf);
-        let hv = expand1(hi, pf);
-        let d0 = lv - s.e0.rgb;
-        let d1 = hv - s.e1.rgb;
-        let err = dot(d0, d0) + dot(d1, d1);
-        if (err < best_err) {
-            best_err = err;
-            best = Q1(vec3u(lo), vec3u(hi), p, vec4f(lv, 255.0), vec4f(hv, 255.0));
-        }
-    }
-    return best;
-}
-
-var<private> m1_q: array<Q1, 2>;
-
-fn fit1_subset(members: u32, s: u32) -> f32 {
-    var seg = pca_segment(members, RGB);
-    var best = 3.4e38;
-    for (var it = 0; it < 3; it++) {
-        let q = quantize1(seg);
-        let err = assign(q.lo_value, q.hi_value, members);
-        if (err < best) {
-            best = err;
-            m1_q[s] = q;
+            s_lo[s] = lo;
+            s_hi[s] = hi;
             keep_indices(members);
         }
         seg = refine(members, seg);
@@ -179,133 +186,378 @@ fn fit1_subset(members: u32, s: u32) -> f32 {
     return best;
 }
 
-// Squared error a subset leaves when its texels are put on one line and
-// quantised to 8 steps along it: the variance off the principal axis, plus
-// the quantisation noise of 8 levels along it.
-//
-// From raw moments (count, sum, sum of outer products), so a partition's two
-// subsets cost one pass over the texels of one of them: the other is the
-// block's total minus it.
-struct Moments {
-    n: f32,
-    sum: vec3f,
-    outer: mat3x3f,
+// The texels of subset `s` of partition `part` among `ns` subsets.
+fn subset_mask(ns: u32, part: u32, s: u32) -> u32 {
+    if (ns == 1u) {
+        return ALL;
+    }
+    if (ns == 2u) {
+        let ones = P2[part];
+        return select(ALL & ~ones, ones, s == 1u);
+    }
+    let one = P3[part] & 0xffffu;
+    let two = P3[part] >> 16u;
+    if (s == 1u) {
+        return one;
+    }
+    if (s == 2u) {
+        return two;
+    }
+    return ALL & ~(one | two);
 }
 
-fn moments(members: u32) -> Moments {
-    var m = Moments(0.0, vec3f(0.0), mat3x3f(vec3f(0.0), vec3f(0.0), vec3f(0.0)));
-    for (var i = 0u; i < 16u; i++) {
-        if (((members >> i) & 1u) != 0u) {
-            let p = block[i].rgb;
-            m.n += 1.0;
-            m.sum += p;
-            m.outer += mat3x3f(p * p.x, p * p.y, p * p.z);
+fn anchor(ns: u32, part: u32, s: u32) -> u32 {
+    if (s == 0u) {
+        return 0u;
+    }
+    if (ns == 2u) {
+        return A2[part];
+    }
+    if (s == 1u) {
+        return A3[part] & 0xffu;
+    }
+    return A3[part] >> 8u;
+}
+
+fn is_anchor(ns: u32, part: u32, i: u32) -> bool {
+    for (var s = 0u; s < ns; s++) {
+        if (anchor(ns, part, s) == i) {
+            return true;
         }
     }
-    return m;
+    return false;
 }
 
-fn line_error(m: Moments) -> f32 {
-    if (m.n < 2.0) {
-        return 0.0;
-    }
-    let mean = m.sum / m.n;
-    let cov = m.outer - mat3x3f(mean * m.sum.x, mean * m.sum.y, mean * m.sum.z);
-    let trace = cov[0][0] + cov[1][1] + cov[2][2];
-    var v = vec3f(1.0, 1.0, 1.0);
-    var lambda = 0.0;
-    for (var it = 0; it < 3; it++) {
-        let next = cov * v;
-        lambda = length(next);
-        if (lambda < 1e-6) {
-            return max(trace, 0.0);
-        }
-        v = next / lambda;
-    }
-    return max(trace - lambda, 0.0) + lambda / 49.0;
-}
-
-var<private> m1_part: u32;
-
-fn fit1() -> f32 {
-    var best_part = 0u;
-    var best_est = 3.4e38;
-    let all = moments(ALL);
-    for (var part = 0u; part < 64u; part++) {
-        let ones = moments(PARTITIONS[part]);
-        let zeros = Moments(all.n - ones.n, all.sum - ones.sum, all.outer - ones.outer);
-        let est = line_error(zeros) + line_error(ones);
-        if (est < best_est) {
-            best_est = est;
-            best_part = part;
-        }
-    }
-    m1_part = best_part;
-    wt = array<f32, 16>(W3[0], W3[1], W3[2], W3[3], W3[4], W3[5], W3[6], W3[7], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-    wn = 8u;
-    let ones = PARTITIONS[best_part];
-    return fit1_subset(ALL & ~ones, 0u) + fit1_subset(ones, 1u);
-}
-
-fn pack1() {
-    let part = m1_part;
-    let ones = PARTITIONS[part];
-    let anchor = ANCHOR2[part];
-    var q = m1_q;
-    // Each subset's anchor index has its top bit implied 0.
-    for (var s = 0u; s < 2u; s++) {
-        let a = select(0u, anchor, s == 1u);
-        if (best_idx[a] >= 4u) {
-            let t = q[s].lo;
-            q[s].lo = q[s].hi;
-            q[s].hi = t;
+// Writes modes 0, 1, 2, 3, 6 and 7 from the kept endpoints and indices:
+// first each anchor's index gets its top bit clear, by swapping its
+// subset's endpoints and reversing its indices where it is set.
+fn pack_subsets(mode: u32, part: u32, ns: u32, pbits: u32, cb: u32, ab: u32, pk: u32, ib: u32) {
+    let msb = 1u << (ib - 1u);
+    let last = (1u << ib) - 1u;
+    for (var s = 0u; s < ns; s++) {
+        if (best_idx[anchor(ns, part, s)] >= msb) {
+            let t = s_lo[s];
+            s_lo[s] = s_hi[s];
+            s_hi[s] = t;
+            let m = subset_mask(ns, part, s);
             for (var i = 0u; i < 16u; i++) {
-                let in_s = ((ones >> i) & 1u) == s;
-                if (in_s) {
-                    best_idx[i] = 7u - best_idx[i];
+                if (((m >> i) & 1u) != 0u) {
+                    best_idx[i] = last - best_idx[i];
                 }
             }
         }
     }
-    put(0u, 2u, 2u);
-    put(2u, 6u, part);
-    for (var c = 0u; c < 3u; c++) {
-        let base = 8u + 24u * c;
-        put(base, 6u, q[0].lo[c]);
-        put(base + 6u, 6u, q[0].hi[c]);
-        put(base + 12u, 6u, q[1].lo[c]);
-        put(base + 18u, 6u, q[1].hi[c]);
+    put(0u, mode + 1u, 1u << mode);
+    var pos = mode + 1u;
+    if (pbits > 0u) {
+        put(pos, pbits, part);
+        pos += pbits;
     }
-    put(80u, 1u, q[0].p);
-    put(81u, 1u, q[1].p);
-    var pos = 82u;
+    for (var c = 0u; c < 3u; c++) {
+        for (var s = 0u; s < ns; s++) {
+            put(pos, cb, s_lo[s].code[c]);
+            put(pos + cb, cb, s_hi[s].code[c]);
+            pos += 2u * cb;
+        }
+    }
+    if (ab > 0u) {
+        for (var s = 0u; s < ns; s++) {
+            put(pos, ab, s_lo[s].code.w);
+            put(pos + ab, ab, s_hi[s].code.w);
+            pos += 2u * ab;
+        }
+    }
+    if (pk == P_UNIQUE) {
+        for (var s = 0u; s < ns; s++) {
+            put(pos, 1u, s_lo[s].p);
+            put(pos + 1u, 1u, s_hi[s].p);
+            pos += 2u;
+        }
+    } else if (pk == P_SHARED) {
+        for (var s = 0u; s < ns; s++) {
+            put(pos, 1u, s_lo[s].p);
+            pos += 1u;
+        }
+    }
     for (var i = 0u; i < 16u; i++) {
-        let n = select(3u, 2u, i == 0u || i == anchor);
+        let n = select(ib, ib - 1u, is_anchor(ns, part, i));
         put(pos, n, best_idx[i]);
         pos += n;
     }
 }
 
+// Modes 0, 1, 2, 3, 6, 7: fits every subset of partition `part` and writes
+// the block if it beats the best so far.
+fn try_subsets(mode: u32, part: u32) {
+    var ns = 1u;
+    var pbits = 0u;
+    var cb = 7u;
+    var ab = 0u;
+    var pk = P_UNIQUE;
+    var ib = 4u;
+    switch mode {
+        case 0u: { ns = 3u; pbits = 4u; cb = 4u; ib = 3u; }
+        case 1u: { ns = 2u; pbits = 6u; cb = 6u; pk = P_SHARED; ib = 3u; }
+        case 2u: { ns = 3u; pbits = 6u; cb = 5u; pk = P_NONE; ib = 2u; }
+        case 3u: { ns = 2u; pbits = 6u; cb = 7u; ib = 2u; }
+        case 7u: { ns = 2u; pbits = 6u; cb = 5u; ab = 5u; ib = 2u; }
+        default: { ab = 7u; } // mode 6
+    }
+    set_weights(ib);
+    var err = 0.0;
+    for (var s = 0u; s < ns; s++) {
+        err += fit_subset(subset_mask(ns, part, s), s, cb, ab, pk);
+        if (err >= out_err) {
+            return;
+        }
+    }
+    begin();
+    pack_subsets(mode, part, ns, pbits, cb, ab, pk, ib);
+    consider(err);
+}
+
+// --- modes 4 and 5: rotation and separate alpha -----------------------------
+
+// The scalar channel's kept indices and endpoints (x code, y value).
+var<private> best_idx2: array<u32, 16>;
+var<private> a_lo: vec2u;
+var<private> a_hi: vec2u;
+
+// Fits the scalar channel `block[i].a` with `ab`-bit endpoints and
+// `ib`-bit indices. Returns its squared error, unweighted.
+fn fit_scalar(ab: u32, ib: u32) -> f32 {
+    let n = 1u << ib;
+    var lo = 255.0;
+    var hi = 0.0;
+    for (var i = 0u; i < 16u; i++) {
+        lo = min(lo, block[i].a);
+        hi = max(hi, block[i].a);
+    }
+    var best = BIG;
+    var ix = array<u32, 16>();
+    for (var it = 0u; it < ITERS; it++) {
+        let ql = quant_channel(lo, ab, false, 0u);
+        let qh = quant_channel(hi, ab, false, 0u);
+        var err = 0.0;
+        for (var i = 0u; i < 16u; i++) {
+            var be = BIG;
+            for (var k = 0u; k < n; k++) {
+                let w = index_weight(ib, k);
+                let v = floor(((64.0 - w) * f32(ql.y) + w * f32(qh.y) + 32.0) / 64.0);
+                let d = block[i].a - v;
+                if (d * d < be) {
+                    be = d * d;
+                    ix[i] = k;
+                }
+            }
+            err += be;
+        }
+        if (err < best) {
+            best = err;
+            a_lo = ql;
+            a_hi = qh;
+            best_idx2 = ix;
+        }
+        // Least squares on the kept indices.
+        var aa = 0.0;
+        var ab2 = 0.0;
+        var bb = 0.0;
+        var ap = 0.0;
+        var bp = 0.0;
+        for (var i = 0u; i < 16u; i++) {
+            let b = index_weight(ib, best_idx2[i]) / 64.0;
+            let a = 1.0 - b;
+            aa += a * a;
+            ab2 += a * b;
+            bb += b * b;
+            ap += a * block[i].a;
+            bp += b * block[i].a;
+        }
+        let det = aa * bb - ab2 * ab2;
+        if (abs(det) < 1e-4) {
+            break;
+        }
+        lo = clamp((bb * ap - ab2 * bp) / det, 0.0, 255.0);
+        hi = clamp((aa * bp - ab2 * ap) / det, 0.0, 255.0);
+    }
+    return best;
+}
+
+// Rotation `rot` swaps alpha with R (1), G (2) or B (3).
+fn rotate(v: vec4f, rot: u32) -> vec4f {
+    if (rot == 1u) {
+        return vec4f(v.a, v.g, v.b, v.r);
+    }
+    if (rot == 2u) {
+        return vec4f(v.r, v.a, v.b, v.g);
+    }
+    if (rot == 3u) {
+        return vec4f(v.r, v.g, v.a, v.b);
+    }
+    return v;
+}
+
+// Mode 4 (`isel` 1 gives colour the 3-bit indices) or mode 5, with
+// rotation `rot`: the colour fitted as one subset, the rotated channel
+// alone.
+fn try_rotated(mode: u32, rot: u32, isel: u32) {
+    let saved = ew;
+    for (var i = 0u; i < 16u; i++) {
+        block[i] = rotate(block[i], rot);
+    }
+    ew = rotate(saved, rot);
+    let cb = select(7u, 5u, mode == 4u);
+    let ab = select(8u, 6u, mode == 4u);
+    let cib = select(2u, 3u, mode == 4u && isel == 1u);
+    let aib = select(2u, 3u, mode == 4u && isel == 0u);
+    set_weights(cib);
+    var err = fit_subset(ALL, 0u, cb, 0u, P_NONE);
+    if (err < out_err) {
+        err += ew.a * fit_scalar(ab, aib);
+    }
+    for (var i = 0u; i < 16u; i++) {
+        block[i] = rotate(block[i], rot);
+    }
+    ew = saved;
+    if (err >= out_err) {
+        return;
+    }
+    // Anchors: texel 0 of each index set has its top bit clear.
+    var lo = s_lo[0];
+    var hi = s_hi[0];
+    if (best_idx[0] >= (1u << (cib - 1u))) {
+        let t = lo;
+        lo = hi;
+        hi = t;
+        for (var i = 0u; i < 16u; i++) {
+            best_idx[i] = (1u << cib) - 1u - best_idx[i];
+        }
+    }
+    var alo = a_lo;
+    var ahi = a_hi;
+    if (best_idx2[0] >= (1u << (aib - 1u))) {
+        let t = alo;
+        alo = ahi;
+        ahi = t;
+        for (var i = 0u; i < 16u; i++) {
+            best_idx2[i] = (1u << aib) - 1u - best_idx2[i];
+        }
+    }
+    begin();
+    put(0u, mode + 1u, 1u << mode);
+    var pos = mode + 1u;
+    put(pos, 2u, rot);
+    pos += 2u;
+    if (mode == 4u) {
+        put(pos, 1u, isel);
+        pos += 1u;
+    }
+    for (var c = 0u; c < 3u; c++) {
+        put(pos, cb, lo.code[c]);
+        put(pos + cb, cb, hi.code[c]);
+        pos += 2u * cb;
+    }
+    put(pos, ab, alo.x);
+    put(pos + ab, ab, ahi.x);
+    pos += 2u * ab;
+    // The 2-bit set first, then the other: colour first unless mode 4
+    // gives colour the 3-bit set.
+    let colour_first = !(mode == 4u && isel == 1u);
+    for (var half = 0u; half < 2u; half++) {
+        let colour = (half == 0u) == colour_first;
+        let ib = select(aib, cib, colour);
+        for (var i = 0u; i < 16u; i++) {
+            let n = select(ib, ib - 1u, i == 0u);
+            put(pos, n, select(best_idx2[i], best_idx[i], colour));
+            pos += n;
+        }
+    }
+    consider(err);
+}
+
+// --- partition candidates ---------------------------------------------------
+
+// Ranks the two-subset partitions by estimate into `top`.
+fn rank2() {
+    top_reset();
+    let all = moments(ALL);
+    for (var part = 0u; part < 64u; part++) {
+        let ones = moments(P2[part]);
+        top_add(part, line_error(moments_minus(all, ones)) + line_error(ones));
+    }
+}
+
+// Ranks the first `n` three-subset partitions by estimate into `top`.
+fn rank3(n: u32) {
+    top_reset();
+    let all = moments(ALL);
+    for (var part = 0u; part < n; part++) {
+        let one = moments(P3[part] & 0xffffu);
+        let two = moments(P3[part] >> 16u);
+        let zero = moments_minus(moments_minus(all, one), two);
+        top_add(part, line_error(zero) + line_error(one) + line_error(two));
+    }
+}
+
 // --- choice -----------------------------------------------------------------
 
-// Below this mode 6 error (squared, summed over the block: an RMS of about
-// one code per channel) the block is smooth enough that no partition can
-// help, and the 64-partition search is skipped.
+// Below this error (squared, summed over the block: an RMS of about one
+// code per channel) a block is smooth enough that nothing else can help.
 const GOOD_ENOUGH: f32 = 48.0;
-
-var<private> idx6: array<u32, 16>;
 
 fn encode() {
     let is_opaque = opaque();
-    let e6 = fit6(select(vec4f(1.0), vec4f(1.0, 1.0, 1.0, 1.0e4), is_opaque));
-    if (is_opaque && e6 > GOOD_ENOUGH) {
-        idx6 = best_idx;
-        let e1 = fit1();
-        if (e1 < e6) {
-            pack1();
-            return;
-        }
-        best_idx = idx6;
+    if (is_opaque) {
+        // Opaque: alpha must stay exactly 255. Modes 0 to 3 store none (the
+        // decoder gives 255), mode 6 is steered to it by a heavy weight, and
+        // modes 4 and 5 rotate a colour channel into it.
+        ew.a = 1.0e4;
     }
-    pack6();
+    try_subsets(6u, 0u);
+    if (out_err <= GOOD_ENOUGH) {
+        return;
+    }
+    if (is_opaque) {
+        ew.a = 0.0;
+        rank2();
+        for (var c = 0u; c < K; c++) {
+            try_subsets(1u, top[c]);
+            if (TIER >= 1u) {
+                try_subsets(3u, top[c]);
+            }
+        }
+        if (TIER >= 1u) {
+            for (var rot = 1u; rot < 4u; rot++) {
+                try_rotated(5u, rot, 0u);
+            }
+        }
+        if (TIER >= 2u) {
+            rank3(16u);
+            for (var c = 0u; c < K; c++) {
+                try_subsets(0u, top[c]);
+            }
+            rank3(64u);
+            for (var c = 0u; c < K; c++) {
+                try_subsets(2u, top[c]);
+            }
+            for (var rot = 1u; rot < 4u; rot++) {
+                try_rotated(4u, rot, 0u);
+                try_rotated(4u, rot, 1u);
+            }
+        }
+    } else if (TIER >= 1u) {
+        for (var rot = 0u; rot < 4u; rot++) {
+            try_rotated(5u, rot, 0u);
+        }
+        rank2();
+        for (var c = 0u; c < K; c++) {
+            try_subsets(7u, top[c]);
+        }
+        if (TIER >= 2u) {
+            for (var rot = 0u; rot < 4u; rot++) {
+                try_rotated(4u, rot, 0u);
+                try_rotated(4u, rot, 1u);
+            }
+        }
+    }
 }
