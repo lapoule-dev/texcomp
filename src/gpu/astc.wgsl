@@ -9,6 +9,8 @@
 // - one partition: colour endpoint mode 8 (RGB direct), 0 (luminance) or 6
 //   (RGB base + scale), or 12 (RGBA direct) with alpha, at several weight
 //   ranges;
+// - one partition with two weight planes: one channel (R, G or B, or alpha
+//   with alpha), the one of least error, on its own plane;
 // - two partitions of one colour endpoint mode, 8 or 12: the `K` layouts
 //   that a moment estimate ranks best among every distinct one the
 //   partition function makes.
@@ -20,8 +22,8 @@
 // and refits by least squares, `ITERS` times.
 //
 // Generated before this file: `TRIT_ENC`, `QUINT_ENC`, `RANGE`, `WUNQ`,
-// `EQ`, `NCFG_O`, `CFG_O`, `NCFG_A`, `CFG_A`, `NP2`, `AP2` and the quality
-// constants.
+// `EQ`, `WSEL`, `NCFG_O`, `CFG_O`, `NCFG_A`, `CFG_A`, `NP2`, `AP2` and the
+// quality constants.
 
 const BIG: f32 = 3.4e38;
 
@@ -151,6 +153,10 @@ fn eq(v: f32, base: u32) -> vec2u {
 // The stored endpoint values of each partition, in the order of its colour
 // endpoint mode.
 var<private> pv: array<array<u32, 8>, 2>;
+
+// With two planes: the second plane's weights, and its channel (the CCS).
+var<private> best_idx2: array<u32, 16>;
+var<private> ccs: u32;
 
 fn colour_weights(alpha: bool) -> vec4f {
     var w = ew;
@@ -288,6 +294,118 @@ fn fit_scale(members: u32, s: u32, base: u32) -> f32 {
     return best;
 }
 
+// The weight of stored value `k` between two values of one channel, as the
+// decoder interpolates them.
+fn lerp1(a: f32, b: f32, k: u32) -> f32 {
+    let w = wt[k];
+    return floor(((64.0 - w) * a + w * b + 32.0) / 64.0);
+}
+
+// CEM 8 or, with `alpha`, 12, with two weight planes: channel `c` (the CCS)
+// on its own plane, fitted alone; the others on a line. Endpoints are
+// oriented, plane by plane, so that the decoder never applies blue
+// contraction: the second endpoint's RGB sum is at least the first's.
+fn fit_dual(c: u32, alpha: bool, base: u32) -> f32 {
+    var w0 = colour_weights(alpha);
+    let wc = w0[c];
+    w0[c] = 0.0;
+    let channels = select(3u, 4u, alpha);
+    var seg = pca_segment(ALL, w0);
+    var lo = 255.0;
+    var hi = 0.0;
+    for (var i = 0u; i < 16u; i++) {
+        lo = min(lo, block[i][c]);
+        hi = max(hi, block[i][c]);
+    }
+    var best = BIG;
+    for (var it = 0u; it < ITERS; it++) {
+        var c0 = vec4u(0u);
+        var c1 = vec4u(0u);
+        var v0 = vec4f(255.0);
+        var v1 = vec4f(255.0);
+        for (var ch = 0u; ch < channels; ch++) {
+            var a = seg.e0[ch];
+            var b = seg.e1[ch];
+            if (ch == c) {
+                a = lo;
+                b = hi;
+            }
+            let q0 = eq(a, base);
+            let q1 = eq(b, base);
+            c0[ch] = q0.x;
+            c1[ch] = q1.x;
+            v0[ch] = f32(q0.y);
+            v1[ch] = f32(q1.y);
+        }
+        // Orient each plane: the line's RGB rise and the CCS channel's
+        // (when it is one of R, G, B) both not negative.
+        var rise = 0.0;
+        for (var ch = 0u; ch < 3u; ch++) {
+            if (ch != c) {
+                rise += v1[ch] - v0[ch];
+            }
+        }
+        for (var ch = 0u; ch < channels; ch++) {
+            let flip = select(rise < 0.0, v1[ch] < v0[ch], ch == c);
+            if (flip) {
+                let tc = c0[ch];
+                c0[ch] = c1[ch];
+                c1[ch] = tc;
+                let tv = v0[ch];
+                v0[ch] = v1[ch];
+                v1[ch] = tv;
+            }
+        }
+        var err = assign(v0, v1, ALL, w0);
+        var ix = array<u32, 16>();
+        var e1 = 0.0;
+        for (var i = 0u; i < 16u; i++) {
+            var be = BIG;
+            for (var k = 0u; k < wn; k++) {
+                let d = block[i][c] - lerp1(v0[c], v1[c], k);
+                if (d * d < be) {
+                    be = d * d;
+                    ix[i] = k;
+                }
+            }
+            e1 += be;
+        }
+        err += wc * e1;
+        if (err < best) {
+            best = err;
+            keep_indices(ALL);
+            best_idx2 = ix;
+            for (var ch = 0u; ch < 4u; ch++) {
+                pv[0][2u * ch] = c0[ch];
+                pv[0][2u * ch + 1u] = c1[ch];
+            }
+        }
+        // Refit: the line on the first plane's weights, the channel alone on
+        // the second's, both by least squares, each in the orientation kept.
+        seg = refine(ALL, Segment(v0, v1));
+        var aa = 0.0;
+        var ab = 0.0;
+        var bb = 0.0;
+        var ap = 0.0;
+        var bp = 0.0;
+        for (var i = 0u; i < 16u; i++) {
+            let wb = wt[best_idx2[i]] / 64.0;
+            let wa = 1.0 - wb;
+            aa += wa * wa;
+            ab += wa * wb;
+            bb += wb * wb;
+            ap += wa * block[i][c];
+            bp += wb * block[i][c];
+        }
+        let det = aa * bb - ab * ab;
+        if (abs(det) > 1e-4) {
+            lo = clamp((bb * ap - ab * bp) / det, 0.0, 255.0);
+            hi = clamp((aa * bp - ab * ap) / det, 0.0, 255.0);
+        }
+    }
+    return best;
+}
+
 fn cem_values(cem: u32) -> u32 {
     switch cem {
         case 0u: { return 2u; }
@@ -303,7 +421,8 @@ fn cem_values(cem: u32) -> u32 {
 // has two) from `pv` and `best_idx`.
 fn pack(cfg: vec4u, seed: u32) {
     let parts = cfg.x & 0xfu;
-    let cem = cfg.x >> 4u;
+    let cem = (cfg.x >> 4u) & 0xfu;
+    let dual = ((cfg.x >> 8u) & 1u) == 1u;
     begin();
     put(0u, 11u, cfg.w & 0xffffu);
     put(11u, 2u, parts - 1u);
@@ -323,10 +442,21 @@ fn pack(cfg: vec4u, seed: u32) {
         }
     }
     ise_put(parts * nv, cfg.w >> 16u, start, false);
-    for (var i = 0u; i < 16u; i++) {
-        seq[i] = best_idx[i];
+    if (dual) {
+        // The planes' weights interleaved, texel by texel; the CCS just
+        // below them.
+        for (var i = 0u; i < 16u; i++) {
+            seq[2u * i] = best_idx[i];
+            seq[2u * i + 1u] = best_idx2[i];
+        }
+        ise_put(32u, cfg.y, 0u, true);
+        put(126u - ise_len(32u, cfg.y), 2u, ccs);
+    } else {
+        for (var i = 0u; i < 16u; i++) {
+            seq[i] = best_idx[i];
+        }
+        ise_put(16u, cfg.y, 0u, true);
     }
-    ise_put(16u, cfg.y, 0u, true);
 }
 
 fn fit_one(members: u32, s: u32, cem: u32, base: u32) -> f32 {
@@ -356,7 +486,8 @@ fn rank_layouts() {
 
 fn try_config(cfg: vec4u) {
     let parts = cfg.x & 0xfu;
-    let cem = cfg.x >> 4u;
+    let cem = (cfg.x >> 4u) & 0xfu;
+    let dual = ((cfg.x >> 8u) & 1u) == 1u;
     let wr = cfg.y;
     wn = range_levels(wr);
     for (var k = 0u; k < wn; k++) {
@@ -364,6 +495,21 @@ fn try_config(cfg: vec4u) {
     }
     for (var v = 0u; v < 65u; v++) {
         wsel[v] = WSEL[wr * 65u + v];
+    }
+    if (dual) {
+        // Each of R, G, B, and alpha when there is alpha, on its own plane in
+        // turn.
+        let alpha = cem == 12u;
+        let last = select(2u, 3u, alpha);
+        for (var c = 0u; c <= last; c++) {
+            let err = fit_dual(c, alpha, cfg.z);
+            if (err < out_err) {
+                ccs = c;
+                pack(cfg, 0u);
+                consider(err);
+            }
+        }
+        return;
     }
     if (parts == 1u) {
         let err = fit_one(ALL, 0u, cem, cfg.z);

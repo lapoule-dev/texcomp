@@ -328,3 +328,170 @@ pub(crate) fn two_partition_layouts() -> Vec<(u32, u32)> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Every packing decodes back to its group**, to the same group as
+    /// upstream's table packs it to (which, for (4, 4, 4), picks another of
+    /// its encodings than the smallest), and the trits' are upstream's.
+    #[test]
+    fn trit_and_quint_packings_round_trip() {
+        let trits = trit_encodings();
+        let quints = quint_encodings();
+        for (key, &q) in quints.iter().enumerate() {
+            let [q0, q1, q2] = decode_quints(q);
+            assert_eq!((q0 + 5 * q1 + 25 * q2) as usize, key);
+        }
+        let up_t: Vec<u32> = crate::uastc::tables::TRIT_ENCODE.iter().map(|&v| v as u32).collect();
+        let up_q: Vec<u32> = crate::uastc::tables::QUINT_ENCODE.iter().map(|&v| v as u32).collect();
+        assert_eq!(trits, up_t);
+        for (key, (&ours, &theirs)) in quints.iter().zip(&up_q).enumerate() {
+            assert_eq!(decode_quints(ours), decode_quints(theirs), "{key}");
+            assert!(ours <= theirs, "{key}: the smallest");
+        }
+    }
+
+    /// **Sequence lengths and the endpoint range rule** (§23.12–23.13), on
+    /// the configurations the kernels use.
+    #[test]
+    fn sequence_lengths_and_endpoint_ranges() {
+        assert_eq!(ise_bits(16, 7), 58, "0..11");
+        assert_eq!(ise_bits(16, 4), 42, "0..5");
+        assert_eq!(ise_bits(16, 9), 70, "0..19, quints");
+        assert_eq!(ise_bits(32, 2), 64, "0..3, two planes");
+        assert_eq!(levels(20), 256);
+        assert_eq!(levels(12), 40);
+        // One partition, CEM 8, weights 0..11: 53 bits leave 0..255.
+        assert_eq!(endpoint_range(6, 128 - 17 - 58), Some(20));
+        // Two partitions, CEM 8, weights 0..3: 67 bits, 12 values: 0..39.
+        assert_eq!(endpoint_range(12, 128 - 29 - 32), Some(12));
+        // Too few bits for 0..5.
+        assert_eq!(endpoint_range(12, 20), None);
+    }
+
+    /// **Every distinct two-partition layout is listed once**, with the
+    /// first seed that makes it.
+    #[test]
+    fn two_partition_layouts_are_distinct_and_complete() {
+        let layouts = two_partition_layouts();
+        let mut seen = std::collections::HashSet::new();
+        for &(seed, mask) in &layouts {
+            assert!(seed < 1024 && mask != 0 && mask != 0xffff);
+            assert!(seen.insert(mask.min(!mask & 0xffff)), "{seed}: a repeat");
+            for i in 0..16 {
+                assert_eq!(partition_of(seed, i & 3, i >> 2, 2), (mask >> i) & 1);
+            }
+        }
+        for seed in 0..1024 {
+            let mask = (0..16).fold(0, |m, i| m | partition_of(seed, i & 3, i >> 2, 2) << i);
+            if mask != 0 && mask != 0xffff {
+                assert!(seen.contains(&mask.min(!mask & 0xffff)), "seed {seed} missing");
+            }
+        }
+        assert!(layouts.len() > 100, "{}", layouts.len());
+    }
+
+    /// Writes `n` bits of `v` at `pos`.
+    fn put(block: &mut u128, pos: u32, n: u32, v: u32) {
+        *block |= ((v as u128) & ((1u128 << n) - 1)) << pos;
+    }
+
+    /// The integer sequence of `values` in range `r`, as bits from 0.
+    fn ise(values: &[u32], r: usize) -> u128 {
+        let (n, trits, quints) = RANGES[r];
+        let (mut out, mut pos) = (0u128, 0u32);
+        let mut emit = |v: u32, bits: u32, out: &mut u128| {
+            put(out, pos, bits, v);
+            pos += bits;
+        };
+        if trits == 1 {
+            let table = trit_encodings();
+            for group in values.chunks(5) {
+                let mut t = [0; 5];
+                let mut m = [0; 5];
+                for (k, &v) in group.iter().enumerate() {
+                    t[k] = v >> n;
+                    m[k] = v & ((1 << n) - 1);
+                }
+                let p = table[(t[0] + 3 * t[1] + 9 * t[2] + 27 * t[3] + 81 * t[4]) as usize];
+                for (k, (shift, len)) in [(0, 2), (2, 2), (4, 1), (5, 2), (7, 1)].into_iter().enumerate() {
+                    emit(m[k], n, &mut out);
+                    emit(p >> shift, len, &mut out);
+                }
+            }
+        } else if quints == 1 {
+            let table = quint_encodings();
+            for group in values.chunks(3) {
+                let mut q = [0; 3];
+                let mut m = [0; 3];
+                for (k, &v) in group.iter().enumerate() {
+                    q[k] = v >> n;
+                    m[k] = v & ((1 << n) - 1);
+                }
+                let p = table[(q[0] + 5 * q[1] + 25 * q[2]) as usize];
+                for (k, (shift, len)) in [(0, 3), (3, 2), (5, 2)].into_iter().enumerate() {
+                    emit(m[k], n, &mut out);
+                    emit(p >> shift, len, &mut out);
+                }
+            }
+        } else {
+            for &v in values {
+                emit(v, n, &mut out);
+            }
+        }
+        // Bits past the sequence's length are not part of it.
+        let len = ise_bits(values.len() as u32, r);
+        if len < 128 {
+            out &= (1u128 << len) - 1;
+        }
+        out
+    }
+
+    /// A one-partition luminance block (CEM 0) from 0 to 255 whose 16
+    /// weights of range `r` all store `k`, as the decoder sees it.
+    fn grey_ramp_block(r: usize, k: u32) -> [u8; 16] {
+        let mut block = 0u128;
+        put(&mut block, 0, 11, block_mode(r, false));
+        put(&mut block, 13, 4, 0);
+        let weight_bits = ise_bits(16, r);
+        let er = endpoint_range(2, 128 - 17 - weight_bits).expect("room for endpoints");
+        let top = (0..levels(er))
+            .find(|&c| unquantize_endpoint(c, er) == 255)
+            .expect("255 is in every range");
+        let zero = (0..levels(er))
+            .find(|&c| unquantize_endpoint(c, er) == 0)
+            .expect("0 is in every range");
+        block |= ise(&[zero, top], er) << 17;
+        // Weights fill the block from bit 127 down, bit-reversed.
+        let weights = ise(&[k; 16], r);
+        block |= weights.reverse_bits();
+        block.to_le_bytes()
+    }
+
+    /// **The weight unquantisation, the block modes and the integer
+    /// sequence encoding are a decoder's**: a grey ramp block at every
+    /// weight range and every stored weight decodes, through an
+    /// independent decoder, to the value its unquantised weight gives.
+    #[test]
+    fn weight_ranges_decode_as_unquantised() {
+        for r in 0..12 {
+            if !(24..=96).contains(&ise_bits(16, r)) {
+                continue;
+            }
+            for k in 0..levels(r) {
+                let w = unquantize_weight_range(k, r);
+                let mut out = [0u32; 16];
+                texture2ddecoder::decode_astc_block(&grey_ramp_block(r, k), 4, 4, &mut out);
+                // The decoder's LDR interpolation of 0 and 255 at w.
+                let c16 = (65535 * w + 32) >> 6;
+                let expected = ((c16 * 255 + 32768) / 65536) as u8;
+                for p in out {
+                    let [b, g, rr, a] = p.to_le_bytes();
+                    assert_eq!((rr, g, b, a), (expected, expected, expected, 255), "range {r} value {k} weight {w}");
+                }
+            }
+        }
+    }
+}

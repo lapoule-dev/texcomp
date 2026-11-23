@@ -3,6 +3,46 @@
 
 # Changelog
 
+## 0.4.0
+
+Breaking: `ktx2::Texture` has new fields (build a 2D texture with
+`Texture::new`), and `ktx2::Format` a new variant. `GpuEncoder::new` keeps
+its signature and now encodes at `Quality::DEFAULT` (level 1), which writes
+other, better blocks at a higher cost than 0.3 (`Quality::level(0)` is 0.3's
+search).
+
+- **BC7, all eight modes.** Modes 0 and 2 (three subsets), 3 and 7 (two),
+  4 and 5 (rotation, separate alpha) join 1 and 6. Partitioned modes fit
+  the `K` best partitions of a moment estimate; every fit iterates
+  quantise, assign, least squares.
+- **ASTC 4×4, more configurations.** Weight ranges 0..7 to 0..31,
+  luminance (CEM 0) and RGB base + scale (CEM 6) endpoints, two weight
+  planes (one channel on its own plane, the best of R, G, B and alpha), two
+  partitions among every distinct layout the partition function makes, and
+  the same for blocks with alpha. Each configuration's endpoint range is the
+  one a decoder derives from the bits left.
+- **`gpu::Quality`**, numbers compiled into the kernel: `mode_tier`,
+  `partition_candidates`, `refine_iterations`, `luma_weighting`.
+  `Quality::level(0..=4)` derives them from one number;
+  `GpuEncoder::with_quality` takes one, `GpuEncoder::quality` says which.
+- Indices and weights are assigned by projecting each texel on its segment
+  and comparing the two weights that bracket it, instead of every weight.
+- The kernels' ASTC and BC7 tables are generated from the specification's
+  procedures and the crate's BC7 tables.
+- **KTX 2.0, the whole container.** 1D, 2D, 3D, arrays, cubemaps and
+  cubemap arrays; RGBA8 (`Format::Rgba8`) beside UASTC, BC7 and ASTC 4×4;
+  Zstandard and ZLIB supercompression (`Supercompression`, pure Rust);
+  `levelCount` 0 (`generate_mips`); premultiplied alpha; every key/value
+  pair kept (`key_values`); `Texture::image` cuts one image out of a level.
+  ETC1S/BasisLZ, 3D arrays and other `vkFormat`s are refused by name.
+- New dependencies: `ruzstd` and `miniz_oxide` (default build, both pure
+  Rust and wasm-clean).
+- Tests: `gpu_oracle` decodes every block of every level through an
+  independent decoder and the GPU's; `ktx2_complete` checks every texture
+  type, format and scheme against the `ktx2` crate, KTX-Software's files and,
+  with `TEXCOMP_KTX`, the Khronos `ktx` tool; `examples/quality-report`
+  prints the quality and cost tables.
+
 ## 0.3.0
 
 Additive: `encode` and `encode_with` keep their signatures, and write the

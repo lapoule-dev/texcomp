@@ -7,12 +7,16 @@
 //! The kernels are WGSL (`common.wgsl` plus one file per format), written
 //! from the Khronos Data Format Specification 1.3:
 //!
-//! - **BC7**: modes 6 (one subset, 4-bit indices) and 1 (two subsets out of
-//!   64 partitions, 3-bit indices). An opaque block keeps the better of the
-//!   two; a block with alpha takes mode 6.
-//! - **ASTC 4×4 LDR**: one partition, CEM 8 with a weight range of 0..11 for
-//!   opaque blocks, CEM 12 with 0..5 for blocks with alpha, endpoints stored
-//!   as plain bytes.
+//! - **BC7**: all eight modes, the partitioned ones over the best
+//!   candidates of a moment estimate. A block with alpha tries the modes
+//!   that store it.
+//! - **ASTC 4×4 LDR**: one or two partitions, one or two weight planes,
+//!   colour endpoint modes 0, 6, 8 and 12, weight ranges 0..2 to 0..31, the
+//!   endpoint range each configuration leaves.
+//!
+//! Which of these a block tries, and how hard each fit works, is the
+//! [`Quality`] the encoder is compiled at; every block keeps the encoding
+//! of least error.
 //!
 //! [`runs_on`] says whether a device can run them; [`GPU_FORMATS`] lists
 //! what they write; [`texture_format`] and [`feature`] name the wgpu

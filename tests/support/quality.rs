@@ -572,7 +572,7 @@ pub fn oracle_block(format: BlockFormat, block: &[u8]) -> [[u8; 4]; 16] {
 pub fn oracle_decode(format: BlockFormat, blocks: &[u8], width: u32, height: u32) -> Vec<u8> {
     let bx = width.div_ceil(4);
     let mut out = vec![0u8; (width * height * 4) as usize];
-    for (b, block) in blocks.chunks_exact(16).enumerate() {
+    for (b, block) in blocks.as_chunks::<16>().0.iter().enumerate() {
         let texels = oracle_block(format, block);
         let (ox, oy) = ((b as u32 % bx) * 4, (b as u32 / bx) * 4);
         for (i, t) in texels.iter().enumerate() {
@@ -604,7 +604,7 @@ pub fn luma(p: &[u8]) -> f64 {
 /// Squared error summed over R, G and B, and over luma.
 pub fn sse(src: &[u8], got: &[u8]) -> (f64, f64) {
     let (mut rgb, mut y) = (0.0, 0.0);
-    for (s, g) in src.chunks_exact(4).zip(got.chunks_exact(4)) {
+    for (s, g) in src.as_chunks::<4>().0.iter().zip(got.as_chunks::<4>().0.iter()) {
         for c in 0..3 {
             let d = s[c] as f64 - g[c] as f64;
             rgb += d * d;
@@ -629,8 +629,8 @@ pub fn ssim_y(src: &[u8], got: &[u8], width: u32, height: u32) -> f64 {
     if w < 11 || h < 11 {
         return f64::NAN;
     }
-    let a: Vec<f64> = src.chunks_exact(4).map(luma).collect();
-    let b: Vec<f64> = got.chunks_exact(4).map(luma).collect();
+    let a: Vec<f64> = src.as_chunks::<4>().0.iter().map(|p| luma(p)).collect();
+    let b: Vec<f64> = got.as_chunks::<4>().0.iter().map(|p| luma(p)).collect();
     let mut g = [0.0f64; 11];
     for (i, v) in g.iter_mut().enumerate() {
         let x = i as f64 - 5.0;

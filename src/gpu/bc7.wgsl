@@ -21,7 +21,8 @@
 // `ITERS` times. The block keeps the encoding of least weighted error.
 //
 // Generated before this file: `P2`, `A2`, `P3`, `A3` (the partition and
-// anchor tables) and the quality constants.
+// anchor tables), `WSEL` (the indices bracketing each ideal weight) and the
+// quality constants.
 
 // Table 119: the interpolation factors of 2-, 3- and 4-bit indices.
 const W2 = array<f32, 4>(0.0, 21.0, 43.0, 64.0);

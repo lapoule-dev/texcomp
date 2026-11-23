@@ -19,8 +19,8 @@ pub struct Quality {
     /// | Tier | BC7, opaque block | BC7, block with alpha | ASTC 4×4, opaque | ASTC 4×4, with alpha |
     /// |---|---|---|---|---|
     /// | 0 | modes 6, 1 | mode 6 | 1 partition, RGB direct, weights 0..11 | 1 partition, RGBA direct, weights 0..5 |
-    /// | 1 | + modes 3, 5 | + modes 5, 7 | + weight ranges 0..7 to 0..31, luminance, RGB base + scale | + weights 0..7, 0..11 |
-    /// | 2 | + modes 0, 2, 4 | + mode 4 | + 2 partitions, RGB direct, weights 0..2 to 0..7 | + 2 partitions, RGBA direct |
+    /// | 1 | + modes 3, 5 | + modes 5, 7 | + weight ranges 0..7 to 0..31, luminance, RGB base + scale, two planes (weights 0..3), 2 partitions (weights 0..3, 0..5) | + weights 0..7, 0..11, two planes, 2 partitions (weights 0..3) |
+    /// | 2 | + modes 0, 2, 4 | + mode 4 | + 2 partitions with weights 0..2, 0..7, two planes with 0..5 | + 2 partitions with weights 0..2, two planes with 0..5 |
     pub mode_tier: u32,
     /// Partitions fully fitted per partitioned encoding, 1 to 16: the best
     /// by a cheap estimate of each one (the variance it leaves off a line
@@ -32,8 +32,10 @@ pub struct Quality {
     pub refine_iterations: u32,
     /// How much the error each choice minimises weighs luma, in percent, 0
     /// to 100: 0 is the squared error summed over R, G and B; 100 weighs the
-    /// channels by their part in BT.601 luma (0.299, 0.587, 0.114), which
-    /// keeps the eye's main signal, at a cost to the error of blue.
+    /// channels by their part in BT.601 luma (0.299, 0.587, 0.114). No level
+    /// sets it: on aerial imagery 50 gains 0.3 to 0.7 dB of luma PSNR for
+    /// 0.1 dB of RGB PSNR, but a per-channel weight is not a luma error, and
+    /// on saturated edges (red against blue) it loses up to 4 dB of luma.
     pub luma_weighting: u32,
 }
 
@@ -51,10 +53,10 @@ impl Quality {
     /// | Level | `mode_tier` | `partition_candidates` | `refine_iterations` | `luma_weighting` |
     /// |---|---|---|---|---|
     /// | 0 | 0 | 1 | 3 | 0 |
-    /// | 1 | 1 | 2 | 3 | 50 |
-    /// | 2 | 2 | 3 | 3 | 50 |
-    /// | 3 | 2 | 6 | 4 | 50 |
-    /// | 4 | 2 | 12 | 6 | 50 |
+    /// | 1 | 1 | 2 | 3 | 0 |
+    /// | 2 | 2 | 3 | 3 | 0 |
+    /// | 3 | 2 | 6 | 4 | 0 |
+    /// | 4 | 2 | 12 | 6 | 0 |
     ///
     /// Level 0 is the search of texcomp 0.3: BC7 modes 6 and 1 with one
     /// partition candidate, ASTC with one configuration per block kind, the
@@ -62,10 +64,10 @@ impl Quality {
     pub const fn level(n: u32) -> Quality {
         let (mode_tier, partition_candidates, refine_iterations, luma_weighting) = match n {
             0 => (0, 1, 3, 0),
-            1 => (1, 2, 3, 50),
-            2 => (2, 3, 3, 50),
-            3 => (2, 6, 4, 50),
-            _ => (2, 12, 6, 50),
+            1 => (1, 2, 3, 0),
+            2 => (2, 3, 3, 0),
+            3 => (2, 6, 4, 0),
+            _ => (2, 12, 6, 0),
         };
         Quality {
             mode_tier,

@@ -66,7 +66,7 @@ fn score_tile(tile: &Tile, decoded: &[Vec<u8>]) -> TileScore {
 fn add_kinds(kinds: &mut Kinds, format: BlockFormat, tile: &Tile, blocks: &[u8], decoded: &[u8]) {
     let l0 = &tile.chain[0];
     let bx = l0.width / 4;
-    for (b, block) in blocks.chunks_exact(16).enumerate() {
+    for (b, block) in blocks.as_chunks::<16>().0.iter().enumerate() {
         let (ox, oy) = ((b as u32 % bx) * 4, (b as u32 / bx) * 4);
         let mut se = 0.0;
         for i in 0..16u32 {
@@ -268,15 +268,27 @@ fn main() {
     println!("Adapter: {:?}\n", gpu.adapter.get_info().name);
     let aerial = aerial_tiles();
     let nasa = nasa_tiles();
+    let synthetic = if std::env::var_os("TEXCOMP_REPORT_SYNTHETIC").is_some() {
+        synthetic_tiles()
+    } else {
+        Vec::new()
+    };
     let header = "| Setting | PSNR RGB | PSNR Y | SSIM Y | worst PSNR RGB | chain PSNR RGB | worst SSIM Y | ms / tile: GPU (wall) |\n|---|---|---|---|---|---|---|---|";
     for format in formats(&gpu) {
-        for (set_name, tiles) in [("IGN aerial (6)", &aerial), ("NASA (20)", &nasa)] {
+        for (set_name, tiles) in [
+            ("IGN aerial (6)", &aerial),
+            ("NASA (20)", &nasa),
+            ("synthetic (4)", &synthetic),
+        ] {
+            if tiles.is_empty() {
+                continue;
+            }
             println!("## {format:?}, {set_name}\n\n{header}");
             let mut per_tile = Vec::new();
             let mut kinds_all = Vec::new();
             for setting in &settings {
                 let run = run_gpu(&gpu, format, setting, tiles, out.as_deref());
-                println!("{}", summary_row(&setting, &run.scores, run.ms_per_tile));
+                println!("{}", summary_row(setting, &run.scores, run.ms_per_tile));
                 assert!(
                     run.oracle_vs_gpu <= 1,
                     "{format:?} {setting}: oracle and GPU decodes differ by {}",

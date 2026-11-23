@@ -86,11 +86,14 @@ pub(crate) fn bc7() -> String {
 }
 
 /// One ASTC 4×4 configuration a kernel tries: partitions, colour endpoint
-/// mode, a 4×4 weight grid of one plane, and the ranges.
+/// mode, a 4×4 weight grid of one plane or two, and the ranges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AstcConfig {
     pub parts: u32,
     pub cem: u32,
+    /// Two weight planes: one channel (the CCS, chosen per block) has its
+    /// own weights.
+    pub dual: bool,
     /// The weight range index (0..=11).
     pub weight_range: usize,
     /// The endpoint range index the decoder derives (§23.13).
@@ -112,23 +115,26 @@ fn cem_values(cem: u32) -> u32 {
 
 impl AstcConfig {
     /// The configuration, if it is a valid block: weights of 24 to 96 bits
-    /// (§23.11) and room left for endpoints of at least 0..5.
-    pub(crate) fn new(parts: u32, cem: u32, weight_range: usize) -> Option<Self> {
-        let weight_bits = astc::ise_bits(16, weight_range);
-        if !(24..=96).contains(&weight_bits) {
+    /// (§23.11), two planes only below four partitions, and room left for
+    /// endpoints of at least 0..5.
+    pub(crate) fn new(parts: u32, cem: u32, weight_range: usize, dual: bool) -> Option<Self> {
+        let weight_bits = astc::ise_bits(if dual { 32 } else { 16 }, weight_range);
+        if !(24..=96).contains(&weight_bits) || (dual && parts > 3) {
             return None;
         }
         // Block mode, partition count, then the CEM (4 bits) for one
-        // partition, or the partition index (10) and the CEM field (6).
-        let header = if parts == 1 { 17 } else { 29 };
+        // partition, or the partition index (10) and the CEM field (6); the
+        // CCS (2) below the weights with two planes.
+        let header = if parts == 1 { 17 } else { 29 } + if dual { 2 } else { 0 };
         let endpoint_range =
             astc::endpoint_range(parts * cem_values(cem), 128 - header - weight_bits)?;
         Some(Self {
             parts,
             cem,
+            dual,
             weight_range,
             endpoint_range,
-            mode: astc::block_mode(weight_range, false),
+            mode: astc::block_mode(weight_range, dual),
         })
     }
 }
@@ -145,31 +151,39 @@ const W0_23: usize = 10;
 const W0_31: usize = 11;
 
 /// The configurations tried at `tier`, for opaque blocks and for blocks with
-/// alpha.
+/// alpha: (partitions, colour endpoint mode, weight range, two planes).
 pub(crate) fn astc_configs(tier: u32) -> (Vec<AstcConfig>, Vec<AstcConfig>) {
-    let mut opaque = vec![(1, 8, W0_11)];
-    let mut alpha = vec![(1, 12, W0_5)];
+    let mut opaque = vec![(1, 8, W0_11, false)];
+    let mut alpha = vec![(1, 12, W0_5, false)];
     if tier >= 1 {
         opaque.extend([
-            (1, 8, W0_7),
-            (1, 8, W0_15),
-            (1, 8, W0_19),
-            (1, 8, W0_23),
-            (1, 8, W0_31),
-            (1, 0, W0_15),
-            (1, 0, W0_31),
-            (1, 6, W0_15),
-            (1, 6, W0_31),
+            (1, 8, W0_7, false),
+            (1, 8, W0_15, false),
+            (1, 8, W0_19, false),
+            (1, 8, W0_23, false),
+            (1, 8, W0_31, false),
+            (1, 0, W0_15, false),
+            (1, 0, W0_31, false),
+            (1, 6, W0_15, false),
+            (1, 6, W0_31, false),
+            (1, 8, W0_3, true),
+            (2, 8, W0_3, false),
+            (2, 8, W0_5, false),
         ]);
-        alpha.extend([(1, 12, W0_7), (1, 12, W0_11)]);
+        alpha.extend([
+            (1, 12, W0_7, false),
+            (1, 12, W0_11, false),
+            (1, 12, W0_3, true),
+            (2, 12, W0_3, false),
+        ]);
     }
     if tier >= 2 {
-        opaque.extend([(2, 8, W0_2), (2, 8, W0_3), (2, 8, W0_5), (2, 8, W0_7)]);
-        alpha.extend([(2, 12, W0_2), (2, 12, W0_3)]);
+        opaque.extend([(2, 8, W0_2, false), (2, 8, W0_7, false), (1, 8, W0_5, true)]);
+        alpha.extend([(2, 12, W0_2, false), (1, 12, W0_5, true)]);
     }
-    let build = |v: Vec<(u32, u32, usize)>| {
+    let build = |v: Vec<(u32, u32, usize, bool)>| {
         v.into_iter()
-            .map(|(p, c, w)| AstcConfig::new(p, c, w).expect("a valid configuration"))
+            .map(|(p, c, w, d)| AstcConfig::new(p, c, w, d).expect("a valid configuration"))
             .collect()
     };
     (build(opaque), build(alpha))
@@ -185,8 +199,8 @@ pub(crate) fn astc_configs(tier: u32) -> (Vec<AstcConfig>, Vec<AstcConfig>) {
 /// - `EQ`: per endpoint range used, for each 0..255 value, the stored value
 ///   nearest it and what that decodes to (`code | value << 8`), 256 a range;
 /// - `CFG_O`, `CFG_A`: the configurations for opaque blocks and for blocks
-///   with alpha, as `(parts | cem << 4, weight range, EQ offset, block mode |
-///   endpoint range << 16)`;
+///   with alpha, as `(parts | cem << 4 | dual << 8, weight range, EQ
+///   offset, block mode | endpoint range << 16)`;
 /// - `AP2`: the distinct two-partition layouts, `seed | mask << 16`.
 pub(crate) fn astc(tier: u32) -> String {
     let (opaque, alpha) = astc_configs(tier);
@@ -210,7 +224,7 @@ pub(crate) fn astc(tier: u32) -> String {
         let slot = ranges.iter().position(|&r| r == c.endpoint_range).unwrap_or(0);
         format!(
             "vec4u({}u, {}u, {}u, {}u)",
-            c.parts | c.cem << 4,
+            c.parts | c.cem << 4 | (c.dual as u32) << 8,
             c.weight_range,
             slot * 256,
             c.mode | (c.endpoint_range as u32) << 16

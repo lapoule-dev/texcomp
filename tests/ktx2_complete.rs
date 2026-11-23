@@ -107,9 +107,11 @@ fn shaped(
     t
 }
 
-/// Every type of §4.1 in the formats that can be it: (name, format, size,
-/// layers, faces, levels).
-fn shapes() -> Vec<(&'static str, Format, (u32, u32, u32), u32, u32, usize)> {
+/// A texture's shape: (name, format, size, layers, faces, levels).
+type Shape = (&'static str, Format, (u32, u32, u32), u32, u32, usize);
+
+/// Every type of §4.1 in the formats that can be it.
+fn shapes() -> Vec<Shape> {
     let uastc = Format::Uastc(UastcChannels::Rgba);
     vec![
         ("1d", Format::Rgba8, (37, 0, 0), 0, 1, 6),
@@ -565,8 +567,8 @@ fn uastc_rgb8(t: &Texture) -> Vec<u8> {
     let (w, h) = (t.width as usize, t.height as usize);
     let bx = w.div_ceil(4);
     let mut out = vec![0u8; w * h * 3];
-    for (b, block) in t.levels[0].chunks_exact(16).enumerate() {
-        let texels = texcomp::uastc::UastcBlock::from_bytes(block.try_into().expect("16 bytes"))
+    for (b, block) in t.levels[0].as_chunks::<16>().0.iter().enumerate() {
+        let texels = texcomp::uastc::UastcBlock::from_bytes(*block)
             .decode_rgba8(false)
             .expect("a valid block");
         for (i, p) in texels.iter().enumerate() {
@@ -593,7 +595,8 @@ fn fnv(bytes: &[u8]) -> u64 {
 fn khronos_files_read_and_rewrite() {
     // (file, format, sRGB, size, layers, faces, levels, scheme, FNV-1a of
     // level 0 as `ktx extract --raw --all` concatenates it).
-    let cases: [(&str, Format, bool, (u32, u32, u32), u32, u32, usize, Supercompression, u64); 5] = [
+    type Case = (&'static str, Format, bool, (u32, u32, u32), u32, u32, usize, Supercompression, u64);
+    let cases: [Case; 5] = [
         ("rgba-reference-u.ktx2", Format::Rgba8, true, (128, 128, 0), 0, 1, 1, Supercompression::None, 0x53e6_afeb_39bf_9b16),
         ("cyan_rgba_reference_u.ktx2", Format::Rgba8, true, (64, 64, 0), 0, 1, 1, Supercompression::None, 0x4fa9_b333_b957_a325),
         ("arraytex_7_mipmap_reference_u.ktx2", Format::Rgba8, true, (16, 16, 0), 7, 1, 5, Supercompression::None, 0x8bf2_6dae_66a8_1f25),
